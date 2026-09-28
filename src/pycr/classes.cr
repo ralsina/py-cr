@@ -136,27 +136,8 @@ module Pycr
                             tp_iter : ((Py::Object) -> Py::Object)?,
                             tp_len : ((Py::Object) -> Int64)?,
                             getsets : Array(GetSetEntry)) : Nil
-      method_count = methods.size + 1 # plus the all-zero sentinel
-      method_table = Pointer(Py::MethodDef).malloc(method_count)
-      Slice.new(method_table, method_count).fill(Py::MethodDef.new)
-      methods.each_with_index do |(name, implementation), index|
-        entry = method_table + index
-        entry.value.name = Pycr.cstr(name)
-        entry.value.meth = implementation
-        entry.value.flags = METH_VARARGS | METH_KEYWORDS
-      end
-
-      getset_table = Pointer(Py::GetSetDef).null
-      unless getsets.empty?
-        getset_table = Pointer(Py::GetSetDef).malloc(getsets.size + 1)
-        Slice.new(getset_table, getsets.size + 1).fill(Py::GetSetDef.new)
-        getsets.each_with_index do |(name, getter, setter), index|
-          entry = getset_table + index
-          entry.value.name = Pycr.cstr(name)
-          entry.value.get = getter
-          entry.value.set = setter
-        end
-      end
+      method_table = build_method_table(methods)
+      getset_table = build_getset_table(getsets)
 
       # Slots: new, dealloc, methods, then optionally getset, repr,
       # iter and len, then str, then the all-zero sentinel entry.
@@ -229,6 +210,32 @@ module Pycr
       (slots + index).as(UInt8*).copy_from(pointerof(entry).as(UInt8*), sizeof(Py::TypeSlotUnary))
     end
 
+    private def self.build_method_table(methods : Array(MethodEntry)) : Py::MethodDef*
+      method_count = methods.size + 1 # plus the all-zero sentinel
+      method_table = Pointer(Py::MethodDef).malloc(method_count)
+      Slice.new(method_table, method_count).fill(Py::MethodDef.new)
+      methods.each_with_index do |(name, implementation), index|
+        entry = method_table + index
+        entry.value.name = Pycr.cstr(name)
+        entry.value.meth = implementation
+        entry.value.flags = METH_VARARGS | METH_KEYWORDS
+      end
+      method_table
+    end
+
+    private def self.build_getset_table(getsets : Array(GetSetEntry)) : Py::GetSetDef*
+      return Pointer(Py::GetSetDef).null if getsets.empty?
+      getset_table = Pointer(Py::GetSetDef).malloc(getsets.size + 1)
+      Slice.new(getset_table, getsets.size + 1).fill(Py::GetSetDef.new)
+      getsets.each_with_index do |(name, getter, setter), index|
+        entry = getset_table + index
+        entry.value.name = Pycr.cstr(name)
+        entry.value.get = getter
+        entry.value.set = setter
+      end
+      getset_table
+    end
+
     private def self.store_tp_self_iter(slots : Py::TypeSlot*, index : Int32, slot_id : Int32) : Nil
       store_tp_unary(slots, index, slot_id, ->pycr_iterator_iter(Py::Object))
     end
@@ -262,11 +269,8 @@ fun pycr_iterator_next(self_object : Py::Object) : Py::Object
     item = state.next_item.call
     # nil from the closure means exhausted: return null with no error
     # set, which CPython reads as StopIteration.
-    if item.nil?
-      Pointer(Void).null.as(Py::Object)
-    else
-      item.not_nil!
-    end
+    next Pointer(Void).null.as(Py::Object) if item.nil?
+    item
   end
 end
 
