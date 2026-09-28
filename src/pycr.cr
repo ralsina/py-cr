@@ -16,6 +16,7 @@
 require "./pycr/conversions"
 require "./pycr/pyref"
 require "./pycr/bridge"
+require "./pycr/adopting"
 require "./pycr/callable"
 require "./pycr/macros"
 require "./pycr/classes"

@@ -93,3 +93,33 @@ dedicated Parallel context (capacity 1). Findings from building it:
 - Parallel.new/checkout from a foreign thread also appears
   nondeterministic; create ECs on the importing thread only (the
   framework does: eager start at import).
+
+## Addendum 2: RESOLVED - AdoptingContext (custom execution context)
+
+The execution context interface is pluggable (five abstract methods;
+`Isolated` is ~100 lines) and the adoption setters are public. Key
+insight: a single-fiber context never swaps - `sleep`/IO suspend and
+resume entirely within the thread's own event loop, so the root fiber
+(which runs Python's stack) needs no special treatment.
+
+`Pycr::AdoptingContext.for_current_thread(name)`:
+- `Thread.current` lazily creates the Thread + root fiber for the
+  foreign thread (representing its current stack)
+- sets `thread.execution_context` / `thread.scheduler` (public
+  setters) to the new context, whose `@event_loop` is its own
+- `sleep`/IO then suspend/resume through that loop on the foreign
+  thread; `spawn` routes to the default EC (Isolated semantics)
+
+`Bridge.run` = adopt once per thread + `release_gil { work }`. Works:
+sleep, blocking IO, exceptions, sequential recycled-id threads, and
+concurrent foreign callers.
+
+## Gotchas found on the way
+
+- Adoption state MUST live on the Thread object (check
+  `thread.execution_context` in a begin/rescue - `getter!` raises on
+  nil). A cache keyed by `pthread_self` breaks: glibc RECYCLES
+  pthread_t values after thread exit, so a recycled thread skips
+  adoption (NilAssertionError).
+- Macro-heredoc batch edits failed silently repeatedly; use small
+  verified edits.

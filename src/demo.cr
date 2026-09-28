@@ -355,6 +355,21 @@ Pycr.pyinit "pycr" do
     end
   end
 
+  # SPIKE rung 1: adopt the calling thread, then sleep (fiber suspension
+  # through the adopted context's event loop).
+  Pycr.pyfunction def adopt_sleep(seconds : Float64) : String
+    Pycr::AdoptingContext.for_current_thread("pycr-adapted")
+    sleep seconds
+    "adopted sleep #{seconds}s"
+  end
+
+  # Rung 2 probe: spawn from an adopted thread routes to the default EC
+  # (Isolated semantics); blocking IO runs directly on the adopted thread.
+  Pycr.pyfunction def adopt_read(path : String) : String
+    Pycr::AdoptingContext.for_current_thread("pycr-adapted")
+    File.read(path)
+  end
+
   Pycr.pyfunction def bridge_raise : Nil
     Pycr::Bridge.run do
       raise ArgumentError.new("raised on the bridge")

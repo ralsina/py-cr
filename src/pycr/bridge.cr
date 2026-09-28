@@ -1,46 +1,62 @@
-# Pycr::Bridge: intended to let foreign Python threads run
-# scheduler-requiring Crystal code (sleep, spawn, channels, IO).
+# Pycr::Bridge: lets foreign Python threads run scheduler-requiring
+# Crystal code (sleep, spawn, channels, IO).
 #
-# CURRENT STATE: a stub. On the importing thread, run executes the
-# block directly. From foreign threads it raises NotImplementedError.
+# Design (AdoptingContext): foreign threads cannot enter Crystal's
+# execution contexts by default - stock Crystal 1.21 gives lazily
+# adopted threads no execution_context - but the execution context
+# interface is public and pluggable. Pycr::AdoptingContext enrolls the
+# calling thread by setting its execution_context/scheduler to a
+# single-fiber context (Isolated semantics: suspend blocks the thread
+# in the context's event loop; no fiber swapping, since the thread's
+# root fiber runs the Python stack). See notes/scheduler-spike.md.
 #
-# Two full implementations were built and abandoned tonight (see
-# notes/scheduler-spike.md for the complete evidence trail):
+# GIL discipline: the work block runs under Pycr.release_gil, so other
+# Python threads keep running during sleeps and blocking IO. The block
+# must not touch Python objects or the C API - convert results to
+# Crystal values inside the block, to Python values after run returns.
 #
-#   - Isolated-context funnel: Isolated forbids spawning fibers onto
-#     itself and routes bare `spawn` to the default EC (the importing
-#     thread), where queued fibers never run while Python owns that
-#     thread -> deadlock for any spawn-using block.
-#   - Parallel-context funnel (capacity 1): jobs ran - the FIRST one.
-#     Subsequent external enqueues never woke the parked scheduler
-#     (deterministically reproducible), and the context creation was
-#     itself nondeterministically hang-prone depending on which thread
-#     and when.
-#
-# The protocol design (raw pthread mutex/condvar handoff, GIL released
-# for the whole wait, no Python access inside blocks) is sound and
-# tested; what is missing is an execution context that can be driven
-# from a foreign thread - an upstream Crystal gap (adopting-EC API).
-# The notes contain the repros and the design, ready for when that
-# gap closes or for a fork.
+# Spawn semantics (Isolated-like): bare `spawn` inside a block routes
+# to the default EC (the importing thread), where queued fibers run
+# when that thread next pumps its own scheduler. Prefer blocking IO in
+# bridge blocks.
 
 module Pycr
   module Bridge
     # Set at import (via __crystal_main) on the importing thread.
     @@importer_thread : LibC::PthreadT = LibC.pthread_self
 
-    # Runs *work* on the importing thread. From foreign threads raises
-    # NotImplementedError: scheduler-requiring work cannot run there
-    # (stock Crystal 1.21 limitation; no adopting execution context).
+    # Runs *work*, adopting the calling thread first when needed. On
+    # the importing thread this is a plain call (that thread is
+    # already enrolled in the default context). Exceptions propagate
+    # with their Crystal type (mapped at the boundary).
     def self.run(&work : -> T) : T forall T
-      if LibC.pthread_self != @@importer_thread
-        raise NotImplementedError.new(
-          "Pycr::Bridge.run from foreign threads is not available yet " \
-          "(no adopting execution context; call this function from the " \
-          "importing thread)"
-        )
+      if LibC.pthread_self == @@importer_thread
+        return work.call
       end
-      work.call
+
+      adopt
+      Pycr.release_gil do
+        work.call
+      end
+    end
+
+    # Enrolls the calling thread in an AdoptingContext (once per
+    # thread); subsequent scheduler-requiring calls on this thread
+    # work with no further setup.
+    #
+    # The adoption check lives on the Thread object itself, NOT in a
+    # cache keyed by pthread id: glibc recycles pthread_t values after
+    # a thread exits, so an id-keyed cache makes a recycled thread skip
+    # adoption (observed as NilAssertionError on the second sequential
+    # foreign thread).
+    def self.adopt : Nil
+      thread = Thread.current
+      already = begin
+        thread.execution_context.is_a?(AdoptingContext)
+      rescue exception : Exception
+        false # getter! raises on nil: not yet adopted
+      end
+      AdoptingContext.for_current_thread("pycr-adapted") unless already
     end
   end
 end
