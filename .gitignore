@@ -5,3 +5,4 @@ lib/
 *.o
 __pycache__/
 bench/
+dist/

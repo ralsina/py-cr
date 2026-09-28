@@ -33,7 +33,9 @@ fi
 objcopy --wildcard --localize-symbol='*@*' "$BUILD/pycr.o" "$BUILD/pycr_loc.o"
 
 CRYSTAL_LIB=$(crystal env CRYSTAL_LIBRARY_PATH)
-cc -shared -Wl,-z,undefs -o pycr.so "$BUILD/pycr_loc.o" \
+# $ORIGIN rpath lets a packaged copy find a bundled libgc.so.1 next to
+# it (packaging/); at the repo root the system libgc resolves as usual.
+cc -shared -Wl,-z,undefs -Wl,-rpath,'$ORIGIN' -o pycr.so "$BUILD/pycr_loc.o" \
   -L"$CRYSTAL_LIB" -lgc -lpthread -ldl
 
 echo "built pycr.so"

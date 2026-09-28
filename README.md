@@ -225,6 +225,27 @@ inputs; pygments 2.18.x for comparison):
 Debug builds are roughly 5x slower — always ship extension modules
 with `--release`.
 
+## Packaging
+
+The `pycr` module ships as a self-contained wheel:
+
+    ./build.sh
+    python3 packaging/build_wheel.py
+    pip install dist/pycr-*.whl
+
+The wheel bundles the compiled extension (`pycr/pycr.so`, linked with
+`$ORIGIN` rpath) and `libgc.so.1`, and carries multi-version tags —
+one wheel installs on CPython 3.11 through 3.14 (the module resolves
+Py* symbols from the loading interpreter; both 3.11 and 3.14 are
+regression-tested against the same binary). Platform is
+`linux_x86_64` (glibc); macOS and musl are future work. Clean-venv
+installs are verified, including subclassing, factories, and the
+foreign-thread bridge from the installed package.
+
+CI (`.github/workflows/ci.yml`) runs the full test battery on CPython
+3.11 and 3.14, lint (ameba + format check), and builds the wheel as
+an artifact on every push.
+
 ## Roadmap
 
 1. `PyRef` as the general storable reference everywhere (works for
@@ -232,8 +253,7 @@ with `--release`.
 2. Attributes with getters only in annotation style are done; block
    style has `pygetter`.
 3. Scheduler bridge scale-up: multi-fiber AdoptingContext (spawn inside bridge blocks, currently routed to the default EC per Isolated semantics); context lifecycle on foreign-thread death.
-4. Packaging: cibuildwheel, per-CPython-version wheels, then
-   limited-API/abi3 discipline.
+4. Packaging: manylinux compliance (vendor bdwgc statically or auditwheel-repair), macOS + musl builds, sdist with a Crystal toolchain fallback.
 
 ## License
 

@@ -1,0 +1,79 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.11", "3.14"]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Crystal
+        uses: crystal-lang/install-crystal@v1
+        with:
+          crystal: "1.21.0"
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Build extension
+        run: ./build.sh
+
+      - name: Main suite
+        run: python3 test/test_pycr.py
+
+      - name: Bridge suite
+        run: python3 test/test_bridge.py
+
+      - name: Example suite (tartrazine, release build)
+        run: |
+          cd examples/tartrazine
+          ./build.sh
+          python3 test_tartrazine.py
+
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Crystal
+        uses: crystal-lang/install-crystal@v1
+        with:
+          crystal: "1.21.0"
+      - name: Install ameba
+        run: |
+          git clone --depth 1 https://github.com/crystal-ameba/ameba.git
+          cd ameba && shards build && cp bin/ameba /usr/local/bin/
+      - name: Ameba
+        run: ameba src
+      - name: Format check
+        run: crystal tool format --check src
+
+  wheel:
+    runs-on: ubuntu-latest
+    needs: test
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Crystal
+        uses: crystal-lang/install-crystal@v1
+        with:
+          crystal: "1.21.0"
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
+      - name: Build extension
+        run: ./build.sh
+      - name: Build wheel
+        run: python3 packaging/build_wheel.py
+      - uses: actions/upload-artifact@v4
+        with:
+          name: pycr-wheels
+          path: dist/*.whl
