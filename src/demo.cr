@@ -33,8 +33,8 @@ class CallbackBox < Pycr::PyObject
   @[Pycr::PyMethod]
   def detach : Nil
     callback = @callback
-    callback.release unless callback.nil?  # deterministic decref
-    @callback = nil                        # finalizer is the safety net
+    callback.release unless callback.nil? # deterministic decref
+    @callback = nil                       # finalizer is the safety net
   end
 
   @[Pycr::PyMethod]
