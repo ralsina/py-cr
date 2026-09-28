@@ -228,6 +228,21 @@ Pycr.pyinit "pycr" do
   Pycr.pyfunction def nothing : Nil
   end
 
+  Pycr.pyfunction def word_stats(words : Array(String)) : NamedTuple(count: Int32, unique: Int32, longest: String)
+    {
+      count:   words.size,
+      unique:  words.uniq.size,
+      longest: words.max_by?(&.size) || "",
+    }
+  end
+
+  # Callable keyword arguments (keyword-only invocation).
+  Pycr.pyfunction def greet_with_kwargs(func : Pycr::Callable) : String
+    result = Pycr::Conversions.from_python(func.call(name: "Crystal", punct: "!"), String)
+    func.release
+    result
+  end
+
   # Three trailing optionals, mirroring the example module's highlight()
   Pycr.pyfunction def echo3(text : String, flag : Bool = false, other : Bool = false, third : Bool = false) : String
     "#{text}|#{flag}|#{other}|#{third}"

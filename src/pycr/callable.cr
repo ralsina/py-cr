@@ -26,6 +26,36 @@ module Pycr
       @ref.release
     end
 
+    # Keyword-only invocation: every option becomes a keyword argument
+    # (mixed positional+keyword is not expressible - Crystal's combined
+    # splat capture loses the argument names - so use one style or the
+    # other).
+    def call(**named : **T) : Py::Object forall T
+      {% begin %}
+        dict = Py.PyDict_New
+        {% for key in T.keys %}
+          pycr_key = Py.PyUnicode_FromString(Pycr.cstr({{ key.stringify }}))
+          pycr_item = Pycr::Conversions.to_python(named[{{ key.symbolize }}])
+          if Py.PyDict_SetItem(dict, pycr_key, pycr_item) == -1
+            Py.Py_DecRef(pycr_key)
+            Py.Py_DecRef(pycr_item)
+            Py.Py_DecRef(dict)
+            raise PythonError.new("failed to build keyword {{ key }}")
+          end
+          Py.Py_DecRef(pycr_key)
+          Py.Py_DecRef(pycr_item)
+        {% end %}
+        empty_args = Py.PyTuple_New(0)
+        result = Py.PyObject_Call(@ref.object, empty_args, dict)
+        Py.Py_DecRef(empty_args)
+        Py.Py_DecRef(dict)
+        if result.null?
+          raise PythonError.new("call to the Python callable failed")
+        end
+        result
+      {% end %}
+    end
+
     # Calls the callable, converting every argument through
     # Pycr::Conversions.to_python. Returns the raw result object;
     # convert it with Pycr::Conversions.from_python. If the callable

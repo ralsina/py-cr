@@ -71,11 +71,13 @@ end
 
 - **Conversions**: `String`, `Bool`, `Int32`, `Int64`, `Float64`,
   `Nil` (`None`), `Bytes` in and out, `Array(T)` in and out,
-  `Hash(K, V)` in and out, `Tuple` out, `Pycr::Callable` (any Python
-  callable, invocable from Crystal, **storable**: owned through
-  `Pycr::PyRef` — release callables you do not store, and the decref
-  is deterministic; the PyRef finalizer is the safety net otherwise),
-  and raw `Py::Object` as an escape hatch. Argument types
+  `Hash(K, V)` in and out, `Tuple` out, `NamedTuple` to dict,
+  `Pycr::Callable` (any Python callable, invocable from Crystal,
+  **storable**: owned through `Pycr::PyRef` — release callables you
+  do not store, and the decref is deterministic; the PyRef finalizer
+  is the safety net otherwise; keyword invocation via
+  `call(name: value)`, positional and keyword cannot be mixed), and
+  raw `Py::Object` as an escape hatch. Argument types
   come from the Crystal signatures; wrong types raise Python
   `TypeError`s.
 - **Keyword arguments**: every declared argument of a pyfunction,
@@ -179,13 +181,13 @@ The demo module is importable as `pycr` from the repo root.
 
 ## Roadmap
 
-1. Callable keyword arguments; `PyRef` as the general storable
-   reference for arbitrary Python objects (it exists; conversions and
-   docs are callable-focused so far).
+1. `PyRef` as the general storable reference for arbitrary Python
+   objects (it exists; conversions and docs are callable-focused so
+   far).
 2. Attributes with getters only in block style; class methods and
    constructors as `pyfunction`s; `__str__`, rich comparison, arithmetic
    slots.
-3. `NamedTuple`; sequence protocol extras (slices).
+3. Sequence protocol extras (slices).
 4. Scheduler bridge: funnel foreign-thread scheduler work to the importing thread's EC (condvar wait under `release_gil`) so IO-capable Crystal calls work from any Python thread.
 5. Packaging: cibuildwheel, per-CPython-version wheels, then
    limited-API/abi3 discipline.

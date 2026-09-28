@@ -586,6 +586,25 @@ def main() -> None:
     assert pycr.pinned_count() == 0
     print("subscripts: wc[i], wc[i]=, `in`, IndexError/TypeError/NotImplementedError, both styles")
 
+    # 23. NamedTuple -> dict conversion; Callable keyword invocation
+    stats = pycr.word_stats(["alpha", "beta", "alpha"])
+    assert stats == {"count": 3, "unique": 2, "longest": "alpha"}
+    empty = pycr.word_stats([])
+    assert empty == {"count": 0, "unique": 0, "longest": ""}
+    print("NamedTuple converts to dict (nested values convert too)")
+
+    def styled(name, punct):
+        return f"<{name}{punct}>"
+
+    assert pycr.greet_with_kwargs(styled) == "<Crystal!>"
+    try:
+        pycr.greet_with_kwargs(lambda name: name)
+    except TypeError:
+        pass
+    else:
+        raise SystemExit("FAIL: wrong keyword signature did not raise")
+    print("Callable keyword invocation works; arity mismatches raise TypeError")
+
     # everything still works after all that churn
     assert pycr.hello() == "Hello from Crystal!"
     print("still healthy after stress + pin/unpin + threads")

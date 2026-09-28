@@ -54,6 +54,34 @@ module Pycr
       list
     end
 
+    # NamedTuple converts to a dict: names become string keys, values
+    # convert recursively. Names exist only at compile time, so the
+    # members are enumerated in macro space via the double-splat
+    # implementation below.
+    def self.to_python(value : NamedTuple) : Py::Object
+      to_python_named(**value)
+    end
+
+    private def self.to_python_named(**value : **T) : Py::Object forall T
+      {% begin %}
+        dict = Py.PyDict_New
+        {% for key in T.keys %}
+          pycr_key = to_python({{ key.stringify }})
+          pycr_item = to_python(value[{{ key.symbolize }}])
+          if Py.PyDict_SetItem(dict, pycr_key, pycr_item) == -1
+            Py.Py_DecRef(pycr_key)
+            Py.Py_DecRef(pycr_item)
+            Py.Py_DecRef(dict)
+            raise PythonError.new("failed to insert {{ key }} into dict")
+          end
+          # SetItem took its own reference; drop ours.
+          Py.Py_DecRef(pycr_key)
+          Py.Py_DecRef(pycr_item)
+        {% end %}
+        dict
+      {% end %}
+    end
+
     def self.to_python(value : Tuple(*T)) : Py::Object forall T
       tuple = Py.PyTuple_New({{ T.size }})
       {% for index in 0...T.size %}
