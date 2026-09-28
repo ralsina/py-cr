@@ -9,12 +9,7 @@ cd "$(dirname "$0")"
 BUILD=$(mktemp -d)
 trap 'rm -rf "$BUILD"' EXIT
 
-if ! crystal build --release --emit obj --no-debug -o "$BUILD/tt.o" src/tartrazine_py.cr 2>"$BUILD/compile.log"; then
-  if [ ! -f "$BUILD/tt.o" ]; then
-    cat "$BUILD/compile.log" >&2
-    exit 1
-  fi
-fi
+crystal build --release --cross-compile --emit obj --no-debug -o "$BUILD/tt" src/tartrazine_py.cr
 
 objcopy --wildcard --localize-symbol='*@*' "$BUILD/tt.o" "$BUILD/tt_loc.o"
 

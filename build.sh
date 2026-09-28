@@ -20,15 +20,10 @@ cd "$(dirname "$0")"
 BUILD=$(mktemp -d)
 trap 'rm -rf "$BUILD"' EXIT
 
-# --emit obj writes the object but still tries to link afterwards, which
-# fails on the intentionally-undefined Py symbols; only a missing object
-# means a real compile error.
-if ! crystal build --emit obj --no-debug -o "$BUILD/pycr.o" src/demo.cr 2>"$BUILD/compile.log"; then
-  if [ ! -f "$BUILD/pycr.o" ]; then
-    cat "$BUILD/compile.log" >&2
-    exit 1
-  fi
-fi
+# --cross-compile stops after the object file (the later link step
+# would fail on the intentionally-undefined Py* symbols); crystal
+# prints its link suggestion, which we ignore.
+crystal build --cross-compile --emit obj --no-debug -o "$BUILD/pycr" src/demo.cr
 
 objcopy --wildcard --localize-symbol='*@*' "$BUILD/pycr.o" "$BUILD/pycr_loc.o"
 
