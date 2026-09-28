@@ -25,14 +25,22 @@ trap 'rm -rf "$BUILD"' EXIT
 # emits pycr.o and prints its link suggestion, which we ignore.
 # (Note: --cross-compile combined with --emit obj breaks the compiler
 # on some setups - don't recombine them.)
-crystal build --cross-compile --no-debug -o "$BUILD/pycr" src/demo.cr
+FLAGS=""
+if [ "${PYCR_FT:-0}" = "1" ]; then
+  FLAGS="-Dpycr_ft"
+fi
+crystal build $FLAGS --cross-compile --no-debug -o "$BUILD/pycr" src/demo.cr
 
 objcopy --wildcard --localize-symbol='*@*' "$BUILD/pycr.o" "$BUILD/pycr_loc.o"
 
 CRYSTAL_LIB=$(crystal env CRYSTAL_LIBRARY_PATH)
 # $ORIGIN rpath lets a packaged copy find a bundled libgc.so.1 next to
 # it (packaging/); at the repo root the system libgc resolves as usual.
-cc -shared -Wl,-z,undefs -Wl,-rpath,'$ORIGIN' -o pycr.so "$BUILD/pycr_loc.o" \
+OUT="pycr.so"
+if [ "${PYCR_FT:-0}" = "1" ]; then
+  OUT="pycr_ft.so"
+fi
+cc -shared -Wl,-z,undefs -Wl,-rpath,'$ORIGIN' -o "$OUT" "$BUILD/pycr_loc.o" \
   -L"$CRYSTAL_LIB" -lgc -lpthread -ldl
 
-echo "built pycr.so"
+echo "built $OUT"
