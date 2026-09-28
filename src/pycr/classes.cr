@@ -14,7 +14,106 @@ module Pycr
     # per-class __py_register would not dispatch.
     def self.bootstrap(module_object : Py::Object, exposed : Array(Py::Object -> Nil)) : Nil
       exposed.each &.call(module_object)
+      register_iterator_type
     end
+
+    # --- iteration protocol --------------------------------------------------
+    #
+    # pyiter methods return a Crystal Iterator; tp_iter wraps it in an
+    # IterState (pinned, with the element conversion baked into a
+    # closure) held by an instance of this internal iterator type. One
+    # generic tp_next serves every class. A separate iterator object
+    # per tp_iter call keeps concurrent iterations independent, and the
+    # IterState holds a PyRef to the owner so it cannot be deallocated
+    # mid-iteration.
+
+    class IterState
+      property next_item : -> Py::Object?
+      property owner_ref : PyRef?
+
+      def initialize(&@next_item : -> Py::Object?)
+        @owner_ref = nil
+      end
+
+      def initialize(@next_item : -> Py::Object?, @owner_ref : PyRef?)
+      end
+    end
+
+    protected def self.iterator_type : Py::Object
+      @@iterator_type ||= Pointer(Void).null.as(Py::Object)
+    end
+
+    protected def self.iterator_type=(type : Py::Object) : Nil
+      @@iterator_type = type
+    end
+
+    protected def self.iterator_states : Set(Void*)
+      @@iterator_states ||= Set(Void*).new
+    end
+
+    # Creates the internal iterator type once and roots it: it is not
+    # added to the module, so nothing else holds a reference.
+    protected def self.register_iterator_type : Nil
+      return unless iterator_type.null?
+
+      slots = Pointer(Py::TypeSlot).malloc(5)
+      store_tp_self_iter(slots, 0, PY_TP_ITER)
+      store_tp_iternext(slots, 1, PY_TP_ITERNEXT)
+      store_tp_dealloc(slots, 2, PY_TP_DEALLOC, ->iterator_dealloc(Py::Object))
+
+      spec = Pointer(Py::TypeSpec).malloc(1)
+      spec.value.name = Pycr.cstr("pycr._Iterator")
+      spec.value.basicsize = Pycr::INSTANCE_DATA_OFFSET + 8
+      spec.value.itemsize = 0
+      spec.value.flags = PY_TPFLAGS_DEFAULT
+      spec.value.slots = slots
+
+      @@iterator_slots = slots
+      @@iterator_spec = spec
+      type = Py.PyType_FromSpec(spec)
+      if type.null?
+        STDERR.puts "pycr: failed to create iterator type\n"
+      else
+        self.iterator_type = type
+      end
+    end
+
+    class_property iterator_slots : Py::TypeSlot* = Pointer(Py::TypeSlot).null
+    class_property iterator_spec : Py::TypeSpec* = Pointer(Py::TypeSpec).null
+
+    protected def self.iterator_dealloc(instance : Py::Object) : Nil
+      pointer = Pycr.instance_data(instance)
+      unless pointer.null?
+        # Deterministic owner-release: dealloc runs under the GIL at a
+        # known point, so the owner wrapper's pin drops now instead of
+        # whenever the IterState's PyRef finalizer gets around to it.
+        state = pointer.as(IterState)
+        owner_ref = state.owner_ref
+        owner_ref.release unless owner_ref.nil?
+        iterator_states.delete(pointer)
+        Pycr.unpin(pointer)
+      end
+      Py.PyObject_Free(instance)
+    end
+
+    # Builds a Python iterator over a Crystal iterator's items. The
+    # conversion of each item is baked into the next_item closure by
+    # the caller (the pyiter thunk), so this stays non-generic.
+    def self.new_iterator(state : IterState, owner : Py::Object) : Py::Object
+      state.owner_ref = PyRef.new(owner)
+      Pycr.pin(state.as(Void*))
+      iterator_states << state.as(Void*)
+      instance = Py.PyType_GenericAlloc(iterator_type, 0)
+      if instance.null?
+        Pycr.unpin(state.as(Void*))
+        iterator_states.delete(state.as(Void*))
+        return Pointer(Void).null.as(Py::Object)
+      end
+      (instance.as(UInt8*) + Pycr::INSTANCE_DATA_OFFSET).as(Pointer(Void*)).value = state.as(Void*)
+      instance
+    end
+
+    # tp_next/tp_iter funs live at global scope below the module.
 
     alias MethodEntry = Tuple(String, (Py::Object, Py::Object, Py::Object) -> Py::Object)
     alias Getter = (Py::Object, Void*) -> Py::Object
@@ -34,6 +133,8 @@ module Pycr
                             tp_dealloc : (Py::Object) -> Nil,
                             tp_repr : ((Py::Object) -> Py::Object)?,
                             tp_str : (Py::Object) -> Py::Object,
+                            tp_iter : ((Py::Object) -> Py::Object)?,
+                            tp_len : ((Py::Object) -> Int64)?,
                             getsets : Array(GetSetEntry)) : Nil
       method_count = methods.size + 1 # plus the all-zero sentinel
       method_table = Pointer(Py::MethodDef).malloc(method_count)
@@ -57,9 +158,11 @@ module Pycr
         end
       end
 
-      # Slots: new, dealloc, methods, then optionally getset and repr,
-      # then str, then the all-zero sentinel entry.
-      slots = Pointer(Py::TypeSlot).malloc(8)
+      # Slots: new, dealloc, methods, then optionally getset, repr,
+      # iter and len, then str, then the all-zero sentinel entry.
+      slot_count = 4 + (getsets.empty? ? 0 : 1) + (tp_repr.nil? ? 0 : 1) +
+                   (tp_iter.nil? ? 0 : 1) + (tp_len.nil? ? 0 : 1) + 1
+      slots = Pointer(Py::TypeSlot).malloc(slot_count)
       store_tp_new(slots, 0, PY_TP_NEW, tp_new)
       store_tp_dealloc(slots, 1, PY_TP_DEALLOC, tp_dealloc)
       store_tp_data(slots, 2, PY_TP_METHODS, method_table.as(Void*))
@@ -70,6 +173,14 @@ module Pycr
       end
       unless tp_repr.nil?
         store_tp_unary(slots, next_slot, PY_TP_REPR, tp_repr)
+        next_slot += 1
+      end
+      unless tp_iter.nil?
+        store_tp_unary(slots, next_slot, PY_TP_ITER, tp_iter)
+        next_slot += 1
+      end
+      unless tp_len.nil?
+        store_tp_len(slots, next_slot, PY_MP_LENGTH, tp_len)
         next_slot += 1
       end
       store_tp_unary(slots, next_slot, PY_TP_STR, tp_str)
@@ -118,6 +229,22 @@ module Pycr
       (slots + index).as(UInt8*).copy_from(pointerof(entry).as(UInt8*), sizeof(Py::TypeSlotUnary))
     end
 
+    private def self.store_tp_self_iter(slots : Py::TypeSlot*, index : Int32, slot_id : Int32) : Nil
+      store_tp_unary(slots, index, slot_id, ->pycr_iterator_iter(Py::Object))
+    end
+
+    private def self.store_tp_iternext(slots : Py::TypeSlot*, index : Int32, slot_id : Int32) : Nil
+      store_tp_unary(slots, index, slot_id, ->pycr_iterator_next(Py::Object))
+    end
+
+    private def self.store_tp_len(slots : Py::TypeSlot*, index : Int32, slot_id : Int32,
+                                  implementation : (Py::Object) -> Int64) : Nil
+      entry = Py::TypeSlotLen.new
+      entry.slot = slot_id
+      entry.pfunc = implementation
+      (slots + index).as(UInt8*).copy_from(pointerof(entry).as(UInt8*), sizeof(Py::TypeSlotLen))
+    end
+
     private def self.store_tp_data(slots : Py::TypeSlot*, index : Int32, slot_id : Int32,
                                    data : Void*) : Nil
       entry = slots + index
@@ -125,4 +252,27 @@ module Pycr
       entry.value.pfunc = data
     end
   end
+end
+
+# tp_next for every pyiter-backed iterator: pulls the next converted
+# item from the state closure; null means exhausted (no error set).
+fun pycr_iterator_next(self_object : Py::Object) : Py::Object
+  Pycr.py_call do
+    state = Pycr.instance_data(self_object).as(Pycr::Classes::IterState)
+    item = state.next_item.call
+    # nil from the closure means exhausted: return null with no error
+    # set, which CPython reads as StopIteration.
+    if item.nil?
+      Pointer(Void).null.as(Py::Object)
+    else
+      item.not_nil!
+    end
+  end
+end
+
+# tp_iter for the iterator type: returns self with a new reference
+# (it is its own iterator).
+fun pycr_iterator_iter(self_object : Py::Object) : Py::Object
+  Py.Py_IncRef(self_object)
+  self_object
 end

@@ -411,15 +411,10 @@ def main() -> None:
     # (Python drops the argument tuple) decrefs back to baseline
     f = lambda x: x + 1
     base_f = sys.getrefcount(f)
+    pycr.apply_func(f, 1)
+    assert sys.getrefcount(f) == base_f, "transient Callable did not release"
     for _ in range(100):
         pycr.apply_func(f, 1)
-    for _ in range(10):
-        garbage = [bytes(64)] * 1024  # scrub stale stack words
-        del garbage
-        gc.collect()
-        pycr.gc()
-        if sys.getrefcount(f) == base_f:
-            break
     assert sys.getrefcount(f) == base_f, "transient Callables leaked a reference"
     print("100 transient Callable conversions, refcount back to baseline")
 
@@ -485,6 +480,71 @@ def main() -> None:
     ft.join()
     assert foreign_errors and "cannot be nil" in foreign_errors[0], foreign_errors
     print("foreign threads: scheduler entry raises clean RuntimeError (stock Crystal behavior)")
+
+    # 21. Iteration protocol: pyiter/pylen, laziness, concurrency
+    wc = pycr.WordCounter()
+    for word in ("alpha", "beta", "gamma"):
+        wc.add(word)
+    assert list(wc) == ["alpha", "beta", "gamma"]
+    assert len(wc) == 3
+    print("iteration: for-loop, list(), len() on a Crystal class")
+
+    # independent concurrent iterators
+    it1, it2 = iter(wc), iter(wc)
+    assert (next(it1), next(it2), next(it1)) == ("alpha", "alpha", "beta")
+    assert list(it1) == ["gamma"]
+    print("concurrent iterations are independent")
+
+    # laziness: Crystal side keeps accepting words mid-iteration
+    it3 = iter(wc)
+    next(it3)
+    wc.add("delta")
+    rest = list(it3)
+    assert rest == ["beta", "gamma", "delta"], rest
+    del it3
+    print("iteration is lazy: words added mid-stream show up")
+
+    # iterator survives Boehm collections mid-iteration (owner + state pinned)
+    it4 = iter(wc)
+    next(it4)
+    pycr.stress(2)
+    gc.collect()
+    pycr.gc()
+    assert list(it4) == ["beta", "gamma", "delta"]
+    del it4
+    gc.collect()
+    pycr.gc()
+    assert pycr.pinned_count() == 3  # wc + the still-live it1, it2
+    del it1, it2
+    gc.collect()
+    pycr.gc()
+    assert pycr.pinned_count() == 1  # only wc itself remains pinned
+    del wc
+    gc.collect()
+    pycr.gc()
+    assert pycr.pinned_count() == 0
+    print("iterators survive GC cycles mid-iteration, then clean up")
+
+    # exhausted iterators keep raising StopIteration
+    exhausted = iter(pycr.WordCounter())
+    try:
+        next(exhausted)
+    except StopIteration:
+        pass
+    else:
+        raise SystemExit("FAIL: empty iteration did not stop")
+    print("empty iteration stops cleanly")
+
+    # annotation style: PyIter + PyLen on Greeter's log
+    g = pycr.Greeter()
+    g.greet("hey")
+    g.greet("ho")
+    assert list(g) == ["hey", "ho"]
+    assert len(g) == 2
+    del g
+    gc.collect()
+    pycr.gc()
+    print("annotation style: PyIter + PyLen work")
 
     # everything still works after all that churn
     assert pycr.hello() == "Hello from Crystal!"

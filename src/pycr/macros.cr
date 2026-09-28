@@ -85,14 +85,28 @@ module Pycr
   annotation PyAttr
   end
 
+  annotation PyIter
+  end
+
+  annotation PyLen
+  end
+
   macro pyclass(klass, python_name, &block)
     {% nodes = block.body.is_a?(Expressions) ? block.body.expressions : [block.body] %}
     class {{ klass.id }} < Pycr::PyObject
       {% has_repr = false %}
       {% has_attrs = false %}
+      {% has_iter = false %}
+      {% has_len = false %}
       {% for node in nodes %}
         {% if node.class_name == "Call" && node.name == :pyattr %}
           {% has_attrs = true %}
+        {% end %}
+        {% if node.class_name == "Call" && node.name == :pyiter %}
+          {% has_iter = true %}
+        {% end %}
+        {% if node.class_name == "Call" && node.name == :pylen %}
+          {% has_len = true %}
         {% end %}
         {% if node.class_name == "Call" && node.name == :pynew %}
           {% init_def = node.args[0] %}
@@ -167,6 +181,36 @@ module Pycr
                 {% end %}
                 Pycr::Conversions.to_python(pycr_receiver.{{ method_def.name }}({% for arg in method_def.args %}{{ arg.name }}, {% end %}))
               {% end %}
+            end
+          end
+        {% elsif node.class_name == "Call" && node.name == :pyiter %}
+          {% iter_def = node.args[0] %}
+          {{ iter_def }}
+
+          def self.__py_iter(self_object : Py::Object) : Py::Object
+            Pycr.py_call do
+              pycr_receiver = Pycr.instance_data(self_object).as({{ klass.id }})
+              pycr_iterator = pycr_receiver.{{ iter_def.name }}
+              pycr_state = Pycr::Classes::IterState.new do
+                pycr_item = pycr_iterator.next
+                if pycr_item.is_a?(Iterator::Stop)
+                  nil
+                else
+                  pycr_converted = Pycr::Conversions.to_python(pycr_item)
+                  raise Pycr::PythonError.new("failed to convert iteration item") if pycr_converted.null?
+                  pycr_converted
+                end
+              end
+              Pycr::Classes.new_iterator(pycr_state, self_object)
+            end
+          end
+        {% elsif node.class_name == "Call" && node.name == :pylen %}
+          {% len_def = node.args[0] %}
+          {{ len_def }}
+
+          def self.__py_len(self_object : Py::Object) : Int64
+            Pycr.py_call_int64 do
+              Pycr.instance_data(self_object).as({{ klass.id }}).{{ len_def.name }}.to_i64
             end
           end
         {% elsif node.class_name == "Call" && node.name == :pyrepr %}
@@ -244,6 +288,16 @@ module Pycr
             nil,
           {% end %}
           ->__py_str(Py::Object),
+          {% if has_iter %}
+            ->__py_iter(Py::Object),
+          {% else %}
+            nil,
+          {% end %}
+          {% if has_len %}
+            ->__py_len(Py::Object),
+          {% else %}
+            nil,
+          {% end %}
           {% if has_attrs %}
             [
               {% for node in nodes %}
@@ -325,6 +379,8 @@ module Pycr
         {% init_def = nil %}
         {% has_repr = false %}
         {% has_attrs = false %}
+        {% has_iter = false %}
+        {% has_len = false %}
         {% for method in klass.methods %}
           {% if method.name == :initialize && method.annotation(Pycr::PyNew) %}
             {% init_def = method %}
@@ -334,6 +390,12 @@ module Pycr
           {% end %}
           {% if method.annotation(Pycr::PyAttr) %}
             {% has_attrs = true %}
+          {% end %}
+          {% if method.annotation(Pycr::PyIter) %}
+            {% has_iter = true %}
+          {% end %}
+          {% if method.annotation(Pycr::PyLen) %}
+            {% has_len = true %}
           {% end %}
         {% end %}
         {% if init_def %}
@@ -452,6 +514,34 @@ module Pycr
                 Pycr::Conversions.to_python(pycr_receiver.to_s)
               end
             end
+            {% for method in klass.methods %}
+              {% if method.annotation(Pycr::PyIter) %}
+                def self.__py_iter(self_object : Py::Object) : Py::Object
+                  Pycr.py_call do
+                    pycr_receiver = Pycr.instance_data(self_object).as({{ klass.id }})
+                    pycr_iterator = pycr_receiver.{{ method.name }}
+                    pycr_state = Pycr::Classes::IterState.new do
+                      pycr_item = pycr_iterator.next
+                      if pycr_item.is_a?(Iterator::Stop)
+                        nil
+                      else
+                        pycr_converted = Pycr::Conversions.to_python(pycr_item)
+                        raise Pycr::PythonError.new("failed to convert iteration item") if pycr_converted.null?
+                        pycr_converted
+                      end
+                    end
+                    Pycr::Classes.new_iterator(pycr_state, self_object)
+                  end
+                end
+              {% end %}
+              {% if method.annotation(Pycr::PyLen) %}
+                def self.__py_len(self_object : Py::Object) : Int64
+                  Pycr.py_call_int64 do
+                    Pycr.instance_data(self_object).as({{ klass.id }}).{{ method.name }}.to_i64
+                  end
+                end
+              {% end %}
+            {% end %}
 
             def self.__py_register(module_object : Py::Object) : Nil
               Pycr::Classes.register_class(
@@ -472,6 +562,16 @@ module Pycr
                   nil,
                 {% end %}
                 ->__py_str(Py::Object),
+                {% if has_iter %}
+                  ->__py_iter(Py::Object),
+                {% else %}
+                  nil,
+                {% end %}
+                {% if has_len %}
+                  ->__py_len(Py::Object),
+                {% else %}
+                  nil,
+                {% end %}
                 {% if has_attrs %}
                   [
                     {% for method in klass.methods %}

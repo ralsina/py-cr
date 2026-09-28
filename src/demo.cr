@@ -63,16 +63,30 @@ class Greeter < Pycr::PyObject
   @[Pycr::PyNew]
   def initialize(greetings : Int32 = 0)
     @greetings = greetings
+    @log = [] of String
   end
 
   @[Pycr::PyMethod]
   def greet(word : String = "hi") : Int32
     @greetings += 1
+    @log << word
+    @greetings
   end
 
   @[Pycr::PyAttr]
   def greetings : Int32
     @greetings
+  end
+
+  # Annotation-style iteration and len: the greeting log.
+  @[Pycr::PyIter]
+  def history : Iterator(String)
+    @log.each
+  end
+
+  @[Pycr::PyLen]
+  def log_size : Int32
+    @log.size
   end
 
   @[Pycr::PyRepr]
@@ -211,23 +225,31 @@ Pycr.pyinit "pycr" do
 
   # Python callables as arguments: the wrapper borrows the reference
   # for the duration of the call.
+  # Callables a function does not store should be released before
+  # returning: the decref is then deterministic instead of waiting for
+  # the PyRef finalizer (see pycr/callable.cr).
   Pycr.pyfunction def apply_func(func : Pycr::Callable, value : Int64) : Int64
-    result = func.call(value)
-    Pycr::Conversions.from_python(result, Int64)
+    result = Pycr::Conversions.from_python(func.call(value), Int64)
+    func.release
+    result
   end
 
   Pycr.pyfunction def map_ints(func : Pycr::Callable, values : Array(Int32)) : Array(Int32)
-    values.map { |value| Pycr::Conversions.from_python(func.call(value), Int32) }
+    mapped = values.map { |value| Pycr::Conversions.from_python(func.call(value), Int32) }
+    func.release
+    mapped
   end
 
   Pycr.pyfunction def call_two(func : Pycr::Callable, first : String, second : String) : String
-    result = func.call(first, second)
-    Pycr::Conversions.from_python(result, String)
+    result = Pycr::Conversions.from_python(func.call(first, second), String)
+    func.release
+    result
   end
 
   Pycr.pyfunction def call_plain(func : Pycr::Callable) : Bool
-    result = func.call
-    Pycr::Conversions.from_python(result, Bool)
+    result = Pycr::Conversions.from_python(func.call, Bool)
+    func.release
+    result
   end
 
   # Spike introspection: which thread ran the last PyRef finalizer
@@ -325,6 +347,16 @@ Pycr.pyinit "pycr" do
     end
 
     pymethod def count : Int32
+      @words.size
+    end
+
+    # Iteration over the words; each tp_iter call yields an independent
+    # iterator, and items stream lazily.
+    pyiter def each : Iterator(String)
+      @words.each
+    end
+
+    pylen def size : Int32
       @words.size
     end
 

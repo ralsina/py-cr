@@ -73,9 +73,9 @@ end
   `Nil` (`None`), `Bytes` in and out, `Array(T)` in and out,
   `Hash(K, V)` in and out, `Tuple` out, `Pycr::Callable` (any Python
   callable, invocable from Crystal, **storable**: owned through
-  `Pycr::PyRef`, whose Boehm-finalizer decrefs make cross-runtime
-  lifetime work without destructors — `release` for deterministic
-  decrefs), and raw `Py::Object` as an escape hatch. Argument types
+  `Pycr::PyRef` — release callables you do not store, and the decref
+  is deterministic; the PyRef finalizer is the safety net otherwise),
+  and raw `Py::Object` as an escape hatch. Argument types
   come from the Crystal signatures; wrong types raise Python
   `TypeError`s.
 - **Keyword arguments**: every declared argument of a pyfunction,
@@ -85,6 +85,12 @@ end
   `TypeCastError`→`TypeError`, `KeyError`→`KeyError`,
   `DivisionByZeroError`→`ZeroDivisionError`, unmapped→`RuntimeError` —
   and C-API failures pass Python's own error through untouched.
+- **Iteration and len**: `pyiter def each : Iterator(T)` /
+  `@[Pycr::PyIter]` make a class iterable from Python — each `iter()`
+  call yields an independent, lazy iterator; items convert through the
+  iterator's element type. `pylen def size : Int32` / `@[Pycr::PyLen]`
+  wire `len()`. Iterators keep the owner alive mid-iteration and
+  survive GC cycles.
 - **Strings and reprs**: `str()` on any exposed class calls its
   Crystal `to_s` (override `to_s` to customize); `repr()` comes from
   `pyrepr`/`@[Pycr::PyRepr]`.
@@ -122,6 +128,7 @@ end
 | `pyinit`/`pyfunction`/`pyclass` DSL + annotation style, kwargs, name overrides, `pyattr` | working, tested |
 | GIL release around long work | working, tested (ticker thread runs ~7M iterations during `nap`) |
 | Crystal scheduler (sleep, fibers, channels, IO) on the importing thread, parks under GIL release | working, tested |
+| Iteration protocol: `pyiter`/`pylen` (block + annotation styles), lazy, concurrent-safe | working, tested |
 | Boehm GC under CPython threading: registration at entry, unregistration at exit, serialized collections | working, tested (concurrent collectors + allocators + spinner + napper) |
 | Pin/unpin registry for cross-runtime ownership | working, tested |
 
@@ -172,7 +179,7 @@ The demo module is importable as `pycr` from the repo root.
 2. Attributes with getters only in block style; class methods and
    constructors as `pyfunction`s; `__str__`, rich comparison, arithmetic
    slots.
-3. `NamedTuple`; iteration protocol (`tp_iter`/`tp_next`).
+3. `NamedTuple`; sequence/mapping protocols (`getitem`, `contains`).
 4. Packaging: cibuildwheel, per-CPython-version wheels, then
    limited-API/abi3 discipline.
 

@@ -86,6 +86,12 @@ lib Py
     pfunc : (Object) -> Void
   end
 
+  struct TypeSlotLen
+    slot : Int32
+    slot_pad : Int32
+    pfunc : (Object) -> Int64
+  end
+
   # Mirror of PyType_Spec (object.h), used with PyType_FromSpec.
   struct TypeSpec
     name : UInt8*
@@ -125,6 +131,7 @@ lib Py
   fun PyCapsule_GetPointer(capsule : Object, name : UInt8*) : Void*
   fun PyBytes_FromStringAndSize(string : UInt8*, size : Int64) : Object
   fun PyBytes_AsStringAndSize(obj : Object, buffer : UInt8**, size : Int64*) : Int32
+  fun PyIter_Check(obj : Object) : Int32
   fun PyCallable_Check(obj : Object) : Int32
   fun PyObject_Call(callable : Object, args : Object, kwargs : Object) : Object
   fun PyType_FromSpec(spec : TypeSpec*) : Object
@@ -152,13 +159,16 @@ METH_KEYWORDS = 0x0002
 # The version CPython was compiled with; PyModule_Create2 accepts it as-is.
 PYTHON_API_VERSION = 1013
 
-# From typeslots.h in the python3.14 headers.
-PY_TP_DEALLOC = 52
-PY_TP_METHODS = 64
-PY_TP_NEW     = 65
-PY_TP_REPR    = 66
-PY_TP_STR     = 70
-PY_TP_GETSET  = 73
+# From typeslots.h in the python3.14 headers (identical on 3.11 and 3.14).
+PY_TP_DEALLOC  = 52
+PY_TP_METHODS  = 64
+PY_TP_NEW      = 65
+PY_TP_REPR     = 66
+PY_TP_ITER     = 62
+PY_TP_ITERNEXT = 63
+PY_TP_STR      = 70
+PY_TP_GETSET   = 73
+PY_MP_LENGTH   =  4
 
 # object.h: HAVE_STACKLESS_EXTENSION is 0 on stock builds, so DEFAULT is 0.
 PY_TPFLAGS_DEFAULT = 0_u32
@@ -432,6 +442,17 @@ module Pycr
     message = "#{exception.class.name}: #{exception.message || "no message"}"
     Py.PyErr_SetString(python_exception_for(exception), cstr(message))
     Pointer(Void).null.as(Py::Object)
+  end
+
+  # py_call for C slots returning ssize_t (mp_length and friends).
+  def self.py_call_int64(&) : Int64
+    yield
+  rescue PythonError
+    -1_i64
+  rescue exception : Exception
+    message = "#{exception.class.name}: #{exception.message || "no message"}"
+    Py.PyErr_SetString(python_exception_for(exception), cstr(message))
+    -1_i64
   end
 
   # py_call for functions that report failure with -1 (attribute
