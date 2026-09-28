@@ -92,6 +92,24 @@ lib Py
     pfunc : (Object) -> Int64
   end
 
+  struct TypeSlotSubscript
+    slot : Int32
+    slot_pad : Int32
+    pfunc : (Object, Object) -> Object
+  end
+
+  struct TypeSlotAssSubscript
+    slot : Int32
+    slot_pad : Int32
+    pfunc : (Object, Object, Object) -> Int32
+  end
+
+  struct TypeSlotContains
+    slot : Int32
+    slot_pad : Int32
+    pfunc : (Object, Object) -> Int32
+  end
+
   # Mirror of PyType_Spec (object.h), used with PyType_FromSpec.
   struct TypeSpec
     name : UInt8*
@@ -160,15 +178,18 @@ METH_KEYWORDS = 0x0002
 PYTHON_API_VERSION = 1013
 
 # From typeslots.h in the python3.14 headers (identical on 3.11 and 3.14).
-PY_TP_DEALLOC  = 52
-PY_TP_METHODS  = 64
-PY_TP_NEW      = 65
-PY_TP_REPR     = 66
-PY_TP_ITER     = 62
-PY_TP_ITERNEXT = 63
-PY_TP_STR      = 70
-PY_TP_GETSET   = 73
-PY_MP_LENGTH   =  4
+PY_MP_ASS_SUBSCRIPT =  3
+PY_MP_SUBSCRIPT     =  5
+PY_SQ_CONTAINS      = 41
+PY_TP_DEALLOC       = 52
+PY_TP_METHODS       = 64
+PY_TP_NEW           = 65
+PY_TP_REPR          = 66
+PY_TP_ITER          = 62
+PY_TP_ITERNEXT      = 63
+PY_TP_STR           = 70
+PY_TP_GETSET        = 73
+PY_MP_LENGTH        =  4
 
 # object.h: HAVE_STACKLESS_EXTENSION is 0 on stock builds, so DEFAULT is 0.
 PY_TPFLAGS_DEFAULT = 0_u32

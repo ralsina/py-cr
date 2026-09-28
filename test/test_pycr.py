@@ -525,7 +525,9 @@ def main() -> None:
     assert pycr.pinned_count() == 0
     print("iterators survive GC cycles mid-iteration, then clean up")
 
-    # exhausted iterators keep raising StopIteration
+    # exhausted iterators keep raising StopIteration; the iterator
+    # keeps its source alive (by design), so delete it before checking
+    # pin hygiene
     exhausted = iter(pycr.WordCounter())
     try:
         next(exhausted)
@@ -533,7 +535,11 @@ def main() -> None:
         pass
     else:
         raise SystemExit("FAIL: empty iteration did not stop")
-    print("empty iteration stops cleanly")
+    del exhausted
+    gc.collect()
+    pycr.gc()
+    assert pycr.pinned_count() == 0
+    print("empty iteration stops cleanly; iterator + kept-alive source clean up")
 
     # annotation style: PyIter + PyLen on Greeter's log
     g = pycr.Greeter()
@@ -545,6 +551,40 @@ def main() -> None:
     gc.collect()
     pycr.gc()
     print("annotation style: PyIter + PyLen work")
+
+    # 22. Subscript protocols: getitem/setitem/contains, both styles
+    wc = pycr.WordCounter()
+    for word in ("alpha", "beta", "gamma"):
+        wc.add(word)
+    assert wc[0] == "alpha"
+    assert wc[-1] == "gamma"  # Crystal negative indexing carries over
+    wc[1] = "BETA"
+    assert list(wc) == ["alpha", "BETA", "gamma"]
+    assert "BETA" in wc and "nope" not in wc
+
+    for call, label in (
+        (lambda: wc[99], "out-of-bounds getitem"),
+        (lambda: wc.__setitem__(0, 3.5), "wrong value type"),
+        (lambda: wc.__delitem__(0), "deletion"),
+    ):
+        try:
+            call()
+        except (IndexError, TypeError, NotImplementedError):
+            pass
+        else:
+            raise SystemExit(f"FAIL: {label} did not raise")
+
+    g = pycr.Greeter()
+    g.greet("hey")
+    g.greet("ho")
+    assert g[0] == "hey"
+    assert "hey" in g and "x" not in g
+    assert len(g) == 2
+    del wc, g
+    gc.collect()
+    pycr.gc()
+    assert pycr.pinned_count() == 0
+    print("subscripts: wc[i], wc[i]=, `in`, IndexError/TypeError/NotImplementedError, both styles")
 
     # everything still works after all that churn
     assert pycr.hello() == "Hello from Crystal!"

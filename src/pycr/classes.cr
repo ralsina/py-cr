@@ -135,35 +135,19 @@ module Pycr
                             tp_str : (Py::Object) -> Py::Object,
                             tp_iter : ((Py::Object) -> Py::Object)?,
                             tp_len : ((Py::Object) -> Int64)?,
+                            tp_getitem : ((Py::Object, Py::Object) -> Py::Object)?,
+                            tp_setitem : ((Py::Object, Py::Object, Py::Object) -> Int32)?,
+                            tp_contains : ((Py::Object, Py::Object) -> Int32)?,
                             getsets : Array(GetSetEntry)) : Nil
       method_table = build_method_table(methods)
       getset_table = build_getset_table(getsets)
 
-      # Slots: new, dealloc, methods, then optionally getset, repr,
-      # iter and len, then str, then the all-zero sentinel entry.
-      slot_count = 4 + (getsets.empty? ? 0 : 1) + (tp_repr.nil? ? 0 : 1) +
-                   (tp_iter.nil? ? 0 : 1) + (tp_len.nil? ? 0 : 1) + 1
-      slots = Pointer(Py::TypeSlot).malloc(slot_count)
+      slots = Pointer(Py::TypeSlot).malloc(16)
       store_tp_new(slots, 0, PY_TP_NEW, tp_new)
       store_tp_dealloc(slots, 1, PY_TP_DEALLOC, tp_dealloc)
       store_tp_data(slots, 2, PY_TP_METHODS, method_table.as(Void*))
-      next_slot = 3
-      unless getsets.empty?
-        store_tp_data(slots, next_slot, PY_TP_GETSET, getset_table.as(Void*))
-        next_slot += 1
-      end
-      unless tp_repr.nil?
-        store_tp_unary(slots, next_slot, PY_TP_REPR, tp_repr)
-        next_slot += 1
-      end
-      unless tp_iter.nil?
-        store_tp_unary(slots, next_slot, PY_TP_ITER, tp_iter)
-        next_slot += 1
-      end
-      unless tp_len.nil?
-        store_tp_len(slots, next_slot, PY_MP_LENGTH, tp_len)
-        next_slot += 1
-      end
+      next_slot = write_optional_slots(slots, 3, getset_table, getsets, tp_repr,
+        tp_iter, tp_len, tp_getitem, tp_setitem, tp_contains)
       store_tp_unary(slots, next_slot, PY_TP_STR, tp_str)
 
       spec = Pointer(Py::TypeSpec).malloc(1)
@@ -242,6 +226,72 @@ module Pycr
 
     private def self.store_tp_iternext(slots : Py::TypeSlot*, index : Int32, slot_id : Int32) : Nil
       store_tp_unary(slots, index, slot_id, ->pycr_iterator_next(Py::Object))
+    end
+
+    # Writes the optional protocol slots (getset table, repr, iter,
+    # len, subscript protocols) and returns the next free slot index.
+    private def self.write_optional_slots(slots : Py::TypeSlot*, start : Int32,
+                                          getset_table : Py::GetSetDef*, getsets : Array(GetSetEntry),
+                                          tp_repr : ((Py::Object) -> Py::Object)?,
+                                          tp_iter : ((Py::Object) -> Py::Object)?,
+                                          tp_len : ((Py::Object) -> Int64)?,
+                                          tp_getitem : ((Py::Object, Py::Object) -> Py::Object)?,
+                                          tp_setitem : ((Py::Object, Py::Object, Py::Object) -> Int32)?,
+                                          tp_contains : ((Py::Object, Py::Object) -> Int32)?) : Int32
+      next_slot = start
+      unless getsets.empty?
+        store_tp_data(slots, next_slot, PY_TP_GETSET, getset_table.as(Void*))
+        next_slot += 1
+      end
+      unless tp_repr.nil?
+        store_tp_unary(slots, next_slot, PY_TP_REPR, tp_repr)
+        next_slot += 1
+      end
+      unless tp_iter.nil?
+        store_tp_unary(slots, next_slot, PY_TP_ITER, tp_iter)
+        next_slot += 1
+      end
+      unless tp_len.nil?
+        store_tp_len(slots, next_slot, PY_MP_LENGTH, tp_len)
+        next_slot += 1
+      end
+      unless tp_getitem.nil?
+        store_tp_subscript(slots, next_slot, PY_MP_SUBSCRIPT, tp_getitem)
+        next_slot += 1
+      end
+      unless tp_setitem.nil?
+        store_tp_ass_subscript(slots, next_slot, PY_MP_ASS_SUBSCRIPT, tp_setitem)
+        next_slot += 1
+      end
+      unless tp_contains.nil?
+        store_tp_contains(slots, next_slot, PY_SQ_CONTAINS, tp_contains)
+        next_slot += 1
+      end
+      next_slot
+    end
+
+    private def self.store_tp_subscript(slots : Py::TypeSlot*, index : Int32, slot_id : Int32,
+                                        implementation : (Py::Object, Py::Object) -> Py::Object) : Nil
+      entry = Py::TypeSlotSubscript.new
+      entry.slot = slot_id
+      entry.pfunc = implementation
+      (slots + index).as(UInt8*).copy_from(pointerof(entry).as(UInt8*), sizeof(Py::TypeSlotSubscript))
+    end
+
+    private def self.store_tp_ass_subscript(slots : Py::TypeSlot*, index : Int32, slot_id : Int32,
+                                            implementation : (Py::Object, Py::Object, Py::Object) -> Int32) : Nil
+      entry = Py::TypeSlotAssSubscript.new
+      entry.slot = slot_id
+      entry.pfunc = implementation
+      (slots + index).as(UInt8*).copy_from(pointerof(entry).as(UInt8*), sizeof(Py::TypeSlotAssSubscript))
+    end
+
+    private def self.store_tp_contains(slots : Py::TypeSlot*, index : Int32, slot_id : Int32,
+                                       implementation : (Py::Object, Py::Object) -> Int32) : Nil
+      entry = Py::TypeSlotContains.new
+      entry.slot = slot_id
+      entry.pfunc = implementation
+      (slots + index).as(UInt8*).copy_from(pointerof(entry).as(UInt8*), sizeof(Py::TypeSlotContains))
     end
 
     private def self.store_tp_len(slots : Py::TypeSlot*, index : Int32, slot_id : Int32,

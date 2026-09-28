@@ -85,12 +85,17 @@ end
   `TypeCastError`→`TypeError`, `KeyError`→`KeyError`,
   `DivisionByZeroError`→`ZeroDivisionError`, unmapped→`RuntimeError` —
   and C-API failures pass Python's own error through untouched.
-- **Iteration and len**: `pyiter def each : Iterator(T)` /
+- **Iteration, len and subscripts**: `pyiter def each : Iterator(T)` /
   `@[Pycr::PyIter]` make a class iterable from Python — each `iter()`
   call yields an independent, lazy iterator; items convert through the
   iterator's element type. `pylen def size : Int32` / `@[Pycr::PyLen]`
-  wire `len()`. Iterators keep the owner alive mid-iteration and
-  survive GC cycles.
+  wire `len()`. `pygetitem def [](i : Int32) : T`,
+  `pysetitem def []=(i : Int32, v : T)` and
+  `pycontains def has?(v : T) : Bool` (or the `PyGetItem` /
+  `PySetItem` / `PyContains` annotations) wire `obj[i]`, `obj[i] = v`
+  and `v in obj`; deletion raises `NotImplementedError`, and Crystal
+  errors map normally (`IndexError` etc.). Iterators keep the owner
+  alive mid-iteration and survive GC cycles.
 - **Strings and reprs**: `str()` on any exposed class calls its
   Crystal `to_s` (override `to_s` to customize); `repr()` comes from
   `pyrepr`/`@[Pycr::PyRepr]`.
@@ -129,6 +134,7 @@ end
 | GIL release around long work | working, tested (ticker thread runs ~7M iterations during `nap`) |
 | Crystal scheduler (sleep, fibers, channels, IO) on the importing thread, parks under GIL release | working, tested |
 | Iteration protocol: `pyiter`/`pylen` (block + annotation styles), lazy, concurrent-safe | working, tested |
+| Subscript protocols: `pygetitem`/`pysetitem`/`pycontains` (block + annotation styles) | working, tested |
 | Boehm GC under CPython threading: registration at entry, unregistration at exit, serialized collections | working, tested (concurrent collectors + allocators + spinner + napper) |
 | Pin/unpin registry for cross-runtime ownership | working, tested |
 
@@ -179,8 +185,9 @@ The demo module is importable as `pycr` from the repo root.
 2. Attributes with getters only in block style; class methods and
    constructors as `pyfunction`s; `__str__`, rich comparison, arithmetic
    slots.
-3. `NamedTuple`; sequence/mapping protocols (`getitem`, `contains`).
-4. Packaging: cibuildwheel, per-CPython-version wheels, then
+3. `NamedTuple`; sequence protocol extras (slices).
+4. Scheduler bridge: funnel foreign-thread scheduler work to the importing thread's EC (condvar wait under `release_gil`) so IO-capable Crystal calls work from any Python thread.
+5. Packaging: cibuildwheel, per-CPython-version wheels, then
    limited-API/abi3 discipline.
 
 The first real example module lives in `examples/tartrazine`: the

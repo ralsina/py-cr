@@ -89,6 +89,16 @@ class Greeter < Pycr::PyObject
     @log.size
   end
 
+  @[Pycr::PyGetItem]
+  def [](index : Int32) : String
+    @log[index]
+  end
+
+  @[Pycr::PyContains]
+  def logged?(word : String) : Bool
+    @log.includes?(word)
+  end
+
   @[Pycr::PyRepr]
   def describe : String
     "Greeter(#{@greetings})"
@@ -358,6 +368,19 @@ Pycr.pyinit "pycr" do
 
     pylen def size : Int32
       @words.size
+    end
+
+    # Subscript protocol: wc[i], wc[i] = word, word in wc.
+    pygetitem def [](index : Int32) : String
+      @words[index]
+    end
+
+    pysetitem def []=(index : Int32, word : String)
+      @words[index] = word
+    end
+
+    pycontains def has?(word : String) : Bool
+      @words.includes?(word)
     end
 
     pyrepr def summary : String

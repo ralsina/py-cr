@@ -88,6 +88,15 @@ module Pycr
   annotation PyIter
   end
 
+  annotation PyGetItem
+  end
+
+  annotation PySetItem
+  end
+
+  annotation PyContains
+  end
+
   annotation PyLen
   end
 
@@ -98,6 +107,9 @@ module Pycr
       {% has_attrs = false %}
       {% has_iter = false %}
       {% has_len = false %}
+      {% has_getitem = false %}
+      {% has_setitem = false %}
+      {% has_contains = false %}
       {% for node in nodes %}
         {% if node.class_name == "Call" && node.name == :pyattr %}
           {% has_attrs = true %}
@@ -107,6 +119,15 @@ module Pycr
         {% end %}
         {% if node.class_name == "Call" && node.name == :pylen %}
           {% has_len = true %}
+        {% end %}
+        {% if node.class_name == "Call" && node.name == :pygetitem %}
+          {% has_getitem = true %}
+        {% end %}
+        {% if node.class_name == "Call" && node.name == :pysetitem %}
+          {% has_setitem = true %}
+        {% end %}
+        {% if node.class_name == "Call" && node.name == :pycontains %}
+          {% has_contains = true %}
         {% end %}
         {% if node.class_name == "Call" && node.name == :pynew %}
           {% init_def = node.args[0] %}
@@ -213,6 +234,45 @@ module Pycr
               Pycr.instance_data(self_object).as({{ klass.id }}).{{ len_def.name }}.to_i64
             end
           end
+        {% elsif node.class_name == "Call" && node.name == :pygetitem %}
+          {% getitem_def = node.args[0] %}
+          {% raise "pygetitem requires exactly one key argument" if getitem_def.args.size != 1 %}
+          {{ getitem_def }}
+
+          def self.__py_getitem(self_object : Py::Object, key_object : Py::Object) : Py::Object
+            Pycr.py_call do
+              pycr_receiver = Pycr.instance_data(self_object).as({{ klass.id }})
+              pycr_key = Pycr::Conversions.from_python(key_object, {{ getitem_def.args[0].restriction }})
+              Pycr::Conversions.to_python(pycr_receiver.{{ getitem_def.name }}(pycr_key))
+            end
+          end
+        {% elsif node.class_name == "Call" && node.name == :pysetitem %}
+          {% setitem_def = node.args[0] %}
+          {% raise "pysetitem requires exactly key and value arguments" if setitem_def.args.size != 2 %}
+          {{ setitem_def }}
+
+          def self.__py_setitem(self_object : Py::Object, key_object : Py::Object, value_object : Py::Object) : Int32
+            Pycr.py_call_int do
+              raise NotImplementedError.new("deletion is not supported") if value_object.null?
+              pycr_receiver = Pycr.instance_data(self_object).as({{ klass.id }})
+              pycr_key = Pycr::Conversions.from_python(key_object, {{ setitem_def.args[0].restriction }})
+              pycr_value = Pycr::Conversions.from_python(value_object, {{ setitem_def.args[1].restriction }})
+              pycr_receiver.{{ setitem_def.name }}(pycr_key, pycr_value)
+              0
+            end
+          end
+        {% elsif node.class_name == "Call" && node.name == :pycontains %}
+          {% contains_def = node.args[0] %}
+          {% raise "pycontains requires exactly one argument" if contains_def.args.size != 1 %}
+          {{ contains_def }}
+
+          def self.__py_contains(self_object : Py::Object, key_object : Py::Object) : Int32
+            Pycr.py_call_int do
+              pycr_receiver = Pycr.instance_data(self_object).as({{ klass.id }})
+              pycr_key = Pycr::Conversions.from_python(key_object, {{ contains_def.args[0].restriction }})
+              pycr_receiver.{{ contains_def.name }}(pycr_key) ? 1 : 0
+            end
+          end
         {% elsif node.class_name == "Call" && node.name == :pyrepr %}
           {% repr_arg = node.args[0] %}
           {% if repr_arg.class_name == "Def" %}
@@ -298,6 +358,21 @@ module Pycr
           {% else %}
             nil,
           {% end %}
+          {% if has_getitem %}
+            ->__py_getitem(Py::Object, Py::Object),
+          {% else %}
+            nil,
+          {% end %}
+          {% if has_setitem %}
+            ->__py_setitem(Py::Object, Py::Object, Py::Object),
+          {% else %}
+            nil,
+          {% end %}
+          {% if has_contains %}
+            ->__py_contains(Py::Object, Py::Object),
+          {% else %}
+            nil,
+          {% end %}
           {% if has_attrs %}
             [
               {% for node in nodes %}
@@ -379,8 +454,14 @@ module Pycr
         {% init_def = nil %}
         {% has_repr = false %}
         {% has_attrs = false %}
+        {% init_def = nil %}
+        {% has_repr = false %}
+        {% has_attrs = false %}
         {% has_iter = false %}
         {% has_len = false %}
+        {% has_getitem = false %}
+        {% has_setitem = false %}
+        {% has_contains = false %}
         {% for method in klass.methods %}
           {% if method.name == :initialize && method.annotation(Pycr::PyNew) %}
             {% init_def = method %}
@@ -396,6 +477,15 @@ module Pycr
           {% end %}
           {% if method.annotation(Pycr::PyLen) %}
             {% has_len = true %}
+          {% end %}
+          {% if method.annotation(Pycr::PyGetItem) %}
+            {% has_getitem = true %}
+          {% end %}
+          {% if method.annotation(Pycr::PySetItem) %}
+            {% has_setitem = true %}
+          {% end %}
+          {% if method.annotation(Pycr::PyContains) %}
+            {% has_contains = true %}
           {% end %}
         {% end %}
         {% if init_def %}
@@ -541,6 +631,39 @@ module Pycr
                   end
                 end
               {% end %}
+              {% if method.annotation(Pycr::PyGetItem) %}
+                {% raise "PyGetItem requires exactly one key argument" if method.args.size != 1 %}
+                def self.__py_getitem(self_object : Py::Object, key_object : Py::Object) : Py::Object
+                  Pycr.py_call do
+                    pycr_receiver = Pycr.instance_data(self_object).as({{ klass.id }})
+                    pycr_key = Pycr::Conversions.from_python(key_object, {{ method.args[0].restriction }})
+                    Pycr::Conversions.to_python(pycr_receiver.{{ method.name }}(pycr_key))
+                  end
+                end
+              {% end %}
+              {% if method.annotation(Pycr::PySetItem) %}
+                {% raise "PySetItem requires exactly key and value arguments" if method.args.size != 2 %}
+                def self.__py_setitem(self_object : Py::Object, key_object : Py::Object, value_object : Py::Object) : Int32
+                  Pycr.py_call_int do
+                    raise NotImplementedError.new("deletion is not supported") if value_object.null?
+                    pycr_receiver = Pycr.instance_data(self_object).as({{ klass.id }})
+                    pycr_key = Pycr::Conversions.from_python(key_object, {{ method.args[0].restriction }})
+                    pycr_value = Pycr::Conversions.from_python(value_object, {{ method.args[1].restriction }})
+                    pycr_receiver.{{ method.name }}(pycr_key, pycr_value)
+                    0
+                  end
+                end
+              {% end %}
+              {% if method.annotation(Pycr::PyContains) %}
+                {% raise "PyContains requires exactly one argument" if method.args.size != 1 %}
+                def self.__py_contains(self_object : Py::Object, key_object : Py::Object) : Int32
+                  Pycr.py_call_int do
+                    pycr_receiver = Pycr.instance_data(self_object).as({{ klass.id }})
+                    pycr_key = Pycr::Conversions.from_python(key_object, {{ method.args[0].restriction }})
+                    pycr_receiver.{{ method.name }}(pycr_key) ? 1 : 0
+                  end
+                end
+              {% end %}
             {% end %}
 
             def self.__py_register(module_object : Py::Object) : Nil
@@ -569,6 +692,21 @@ module Pycr
                 {% end %}
                 {% if has_len %}
                   ->__py_len(Py::Object),
+                {% else %}
+                  nil,
+                {% end %}
+                {% if has_getitem %}
+                  ->__py_getitem(Py::Object, Py::Object),
+                {% else %}
+                  nil,
+                {% end %}
+                {% if has_setitem %}
+                  ->__py_setitem(Py::Object, Py::Object, Py::Object),
+                {% else %}
+                  nil,
+                {% end %}
+                {% if has_contains %}
+                  ->__py_contains(Py::Object, Py::Object),
                 {% else %}
                   nil,
                 {% end %}
