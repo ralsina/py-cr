@@ -988,7 +988,7 @@ module Pycr
       else
         # Free-threaded builds: declare GIL-free operation, otherwise
         # CPython re-enables the GIL process-wide on first import.
-        Pycr.set_module_gil(module_object)
+        Pycr.module_gil = module_object
         {% exposed_classes = Pycr::PyObject.all_subclasses %}
         {% unless exposed_classes.empty? && block_classes.empty? %}
           Pycr::Classes.bootstrap(module_object, [{% for klass in exposed_classes %}->{{ klass }}.__py_register(Py::Object), {% end %}{% for klass in block_classes %}->{{ klass }}.__py_register(Py::Object), {% end %}])

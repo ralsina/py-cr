@@ -298,7 +298,7 @@ module Pycr
   # Marks a freshly created module as safe without the GIL (free-threaded
   # builds). Without this, CPython re-enables the GIL process-wide on
   # first import of the module, which crashes our boundary.
-  def self.set_module_gil(module_object : Py::Object) : Nil
+  def self.module_gil=(module_object : Py::Object) : Nil
     return if @@set_gil.null?
     set_gil_fn = Proc(Py::Object, Pointer(Void), Nil).new(@@set_gil, Pointer(Void).null)
     set_gil_fn.call(module_object, PY_MOD_GIL_NOT_USED)
