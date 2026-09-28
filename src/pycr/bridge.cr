@@ -53,7 +53,7 @@ module Pycr
       thread = Thread.current
       already = begin
         thread.execution_context.is_a?(AdoptingContext)
-      rescue exception : Exception
+      rescue Exception
         false # getter! raises on nil: not yet adopted
       end
       AdoptingContext.for_current_thread("pycr-adapted") unless already
