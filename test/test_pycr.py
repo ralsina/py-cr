@@ -623,6 +623,44 @@ def main() -> None:
     pycr.gc()
     print("slices: positive/negative/step/clamped, both styles, plain indexing intact")
 
+    # 26. Little bits: factories, getter-only attrs, compare/arithmetic,
+    #     PyRef as a general storable reference
+    factory_counter = pycr.counter_from(9)
+    assert type(factory_counter) is pycr.Counter and factory_counter.value() == 9
+    factory_wc = pycr.word_counter_from("fee fi fo")
+    assert list(factory_wc) == ["fee", "fi", "fo"]
+    print("factories: exposed instances returned from plain pyfunctions")
+
+    assert factory_counter.doubled == 18
+    factory_counter.increment(1)
+    assert factory_counter.doubled == 20
+    try:
+        factory_counter.doubled = 1
+    except NotImplementedError:
+        pass
+    else:
+        raise SystemExit("FAIL: getter-only attribute accepted a write")
+    print("getter-only attribute: reads derive, writes raise")
+
+    left = pycr.word_counter_from("a b c")
+    right = pycr.word_counter_from("a b")
+    assert left > right and left >= right and right < left and right <= left
+    assert left == pycr.word_counter_from("a b c")
+    assert left != right
+    assert list(left + right) == ["a", "b", "c", "a", "b"]
+    assert (left == 3) is False  # incompatible: __eq__ fallback
+    print("rich comparison + concatenation arithmetic; NotImplemented fallback")
+
+    payload = {"key": [1, 2, 3]}
+    pycr.remember(payload)
+    assert pycr.recall() is payload
+    payload["key"].append(4)
+    assert pycr.recall()["key"] == [1, 2, 3, 4]
+    del payload
+    gc.collect()
+    pycr.gc()
+    print("PyRef: arbitrary Python objects stored with identity preserved")
+
     # everything still works after all that churn
     assert pycr.hello() == "Hello from Crystal!"
     print("still healthy after stress + pin/unpin + threads")

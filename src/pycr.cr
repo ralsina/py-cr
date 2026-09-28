@@ -112,6 +112,12 @@ lib Py
     pfunc : (Object, Object) -> Int32
   end
 
+  struct TypeSlotCompare
+    slot : Int32
+    slot_pad : Int32
+    pfunc : (Object, Object, Int32) -> Object
+  end
+
   # Mirror of PyType_Spec (object.h), used with PyType_FromSpec.
   struct TypeSpec
     name : UInt8*
@@ -173,6 +179,8 @@ lib Py
   $index_error = PyExc_IndexError : Object
   $zero_division_error = PyExc_ZeroDivisionError : Object
   $not_implemented_error = PyExc_NotImplementedError : Object
+  # Py_NotImplemented: the C symbol holds the object itself.
+  $not_implemented = _Py_NotImplementedStruct : Object
   $slice_type = PySlice_Type : Object
 end
 
@@ -195,6 +203,16 @@ PY_TP_ITERNEXT      = 63
 PY_TP_STR           = 70
 PY_TP_GETSET        = 73
 PY_MP_LENGTH        =  4
+PY_TP_RICHCOMPARE   = 67
+PY_NB_ADD           =  7
+PY_NB_SUBTRACT      = 36
+PY_NB_MULTIPLY      = 29
+PY_COMPARE_LT       =  0
+PY_COMPARE_LE       =  1
+PY_COMPARE_EQ       =  2
+PY_COMPARE_NE       =  3
+PY_COMPARE_GT       =  4
+PY_COMPARE_GE       =  5
 
 # object.h: HAVE_STACKLESS_EXTENSION is 0 on stock builds, so DEFAULT is 0.
 PY_TPFLAGS_DEFAULT = 0_u32
@@ -243,6 +261,12 @@ def boehm_thread_exit(_value : Void*)
 end
 
 module Pycr
+  # The Py_NotImplemented object pointer is the SYMBOL ADDRESS of
+  # _Py_NotImplementedStruct (same indirection as PySlice_Type).
+  def self.not_implemented : Py::Object
+    pointerof(Py.not_implemented).as(Py::Object)
+  end
+
   # Raw pthread TLS, NOT @[ThreadLocal]: Crystal's thread-local class
   # vars go through Thread.current, which crashes on foreign threads
   # because the scheduler never initialized in library mode. Nilable
@@ -559,6 +583,17 @@ module Pycr
     entry.value.name = cstr(name)
     entry.value.meth = implementation
     entry.value.flags = METH_VARARGS | METH_KEYWORDS
+  end
+
+  # Unwraps an exposed-class wrapper into its pinned Crystal object,
+  # verifying the Python type matches the registered type for *klass*
+  # (exact match: Python subclasses of exposed classes are rejected and
+  # surface as NotImplemented at comparison/arithmetic sites). Returns
+  # nil when the object is not a wrapper of *klass*.
+  def self.unwrap_as(obj : Py::Object, klass : Pycr::PyObject.class) : Void*?
+    type = Classes.type_by_class[klass]?
+    return if type.nil? || obj.as(Pointer(Void*))[1] != type
+    instance_data(obj)
   end
 
   # Returns normalized (start, stop, step, count) when *key* is a

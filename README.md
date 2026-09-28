@@ -96,7 +96,13 @@ end
   `pycontains def has?(v : T) : Bool` (or the `PyGetItem` /
   `PySetItem` / `PyContains` annotations) wire `obj[i]`, `obj[i] = v`
   and `v in obj`; deletion raises `NotImplementedError`, and Crystal
-  errors map normally (`IndexError` etc.). Classes with both
+  errors map normally (`IndexError` etc.). `pygetter def name : T`
+  defines a read-only attribute from a method; `pycompare def cmp(other
+  : T, op : Int32) : Bool` wires all six comparisons (`<` `<=` `==`
+  `!=` `>` `>=`, with `NotImplemented` fallback for foreign types);
+  `pyadd`/`pysub`/`pymul` wire `+` `-` `*`. Exposed instances convert
+  back into Python objects, so plain `pyfunction`s can be factories
+  (`counter_from(9)` returns a real `Counter`). Classes with both
   `pygetitem` (integer key) and `pylen` also support Python slices —
   `wc[0:2]`, `wc[::2]`, `wc[::-1]` — with endpoints normalized by
   CPython's own `PySlice_Unpack`/`AdjustIndices`. Iterators keep the
@@ -148,6 +154,7 @@ end
 | Subscript protocols: `pygetitem`/`pysetitem`/`pycontains` (block + annotation styles) | working, tested |
 | Slices over `pygetitem` + `pylen` (PySlice_Unpack/AdjustIndices) | working, tested |
 | Scheduler bridge: foreign-thread scheduler access via AdoptingContext (sleep/IO/exceptions from any thread, GIL released) | working, tested |
+| Factories (exposed instances from pyfunctions), `pygetter`, `pycompare`, `pyadd`/`pysub`/`pymul`, PyRef storage | working, tested |
 | Boehm GC under CPython threading: registration at entry, unregistration at exit, serialized collections | working, tested (concurrent collectors + allocators + spinner + napper) |
 | Pin/unpin registry for cross-runtime ownership | working, tested |
 
@@ -194,12 +201,10 @@ The demo module is importable as `pycr` from the repo root.
 
 ## Roadmap
 
-1. `PyRef` as the general storable reference for arbitrary Python
-   objects (it exists; conversions and docs are callable-focused so
-   far).
-2. Attributes with getters only in block style; class methods and
-   constructors as `pyfunction`s; `__str__`, rich comparison, arithmetic
-   slots.
+1. `PyRef` as the general storable reference everywhere (works for
+   arbitrary objects via remember/recall-style APIs).
+2. Attributes with getters only in annotation style are done; block
+   style has `pygetter`.
 3. Scheduler bridge scale-up: multi-fiber AdoptingContext (spawn inside bridge blocks, currently routed to the default EC per Isolated semantics); context lifecycle on foreign-thread death.
 4. Packaging: cibuildwheel, per-CPython-version wheels, then
    limited-API/abi3 discipline.

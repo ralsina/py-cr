@@ -128,6 +128,7 @@ module Pycr
     end
 
     def self.register_class(module_object : Py::Object, python_name : String,
+                            klass : Pycr::PyObject.class,
                             methods : Array(MethodEntry),
                             tp_new : (Py::Object, Py::Object, Py::Object) -> Py::Object,
                             tp_dealloc : (Py::Object) -> Nil,
@@ -138,16 +139,21 @@ module Pycr
                             tp_getitem : ((Py::Object, Py::Object) -> Py::Object)?,
                             tp_setitem : ((Py::Object, Py::Object, Py::Object) -> Int32)?,
                             tp_contains : ((Py::Object, Py::Object) -> Int32)?,
+                            tp_compare : ((Py::Object, Py::Object, Int32) -> Py::Object)?,
+                            tp_add : ((Py::Object, Py::Object) -> Py::Object)?,
+                            tp_sub : ((Py::Object, Py::Object) -> Py::Object)?,
+                            tp_mul : ((Py::Object, Py::Object) -> Py::Object)?,
                             getsets : Array(GetSetEntry)) : Nil
       method_table = build_method_table(methods)
       getset_table = build_getset_table(getsets)
 
-      slots = Pointer(Py::TypeSlot).malloc(16)
+      slots = Pointer(Py::TypeSlot).malloc(24)
       store_tp_new(slots, 0, PY_TP_NEW, tp_new)
       store_tp_dealloc(slots, 1, PY_TP_DEALLOC, tp_dealloc)
       store_tp_data(slots, 2, PY_TP_METHODS, method_table.as(Void*))
       next_slot = write_optional_slots(slots, 3, getset_table, getsets, tp_repr,
-        tp_iter, tp_len, tp_getitem, tp_setitem, tp_contains)
+        tp_iter, tp_len, tp_getitem, tp_setitem, tp_contains, tp_compare,
+        tp_add, tp_sub, tp_mul)
       store_tp_unary(slots, next_slot, PY_TP_STR, tp_str)
 
       spec = Pointer(Py::TypeSpec).malloc(1)
@@ -160,10 +166,42 @@ module Pycr
       class_tables[python_name] = {method_table, slots, spec, getset_table}
 
       type = Py.PyType_FromSpec(spec)
-      if type.null? || Py.PyModule_AddObject(module_object, Pycr.cstr(python_name.split('.').last), type) != 0
-        # AddObject steals the reference only on success.
+      if type.null?
         Py.Py_DecRef(type) unless type.null?
+      else
+        # Root the type for factory-style wrap() lookups.
+        type_by_class[klass] = type
+        # AddObject steals the reference only on success.
+        if Py.PyModule_AddObject(module_object, Pycr.cstr(python_name.split('.').last), type) != 0
+          Py.Py_DecRef(type) unless type.null?
+          type_by_class.delete(klass)
+        end
       end
+    end
+
+    # Python type objects by Crystal class, rooted here (AddObject's
+    # reference belongs to the module; wrap() needs its own lookup).
+    def self.type_by_class : Hash(Pycr::PyObject.class, Py::Object)
+      @@type_by_class ||= Hash(Pycr::PyObject.class, Py::Object).new
+    end
+
+    # Wraps a Crystal instance of a registered exposed class into a
+    # Python-owned object (factory functions returning instances).
+    def self.wrap(instance : Pycr::PyObject) : Py::Object
+      type = type_by_class[instance.class]?
+      unless type
+        raise ArgumentError.new(
+          "#{instance.class} is not an exposed class (no Python type registered)"
+        )
+      end
+      Pycr.pin(instance.as(Void*))
+      allocated = Py.PyType_GenericAlloc(type, 0)
+      if allocated.null?
+        Pycr.unpin(instance.as(Void*))
+        return Pointer(Void).null.as(Py::Object)
+      end
+      (allocated.as(UInt8*) + Pycr::INSTANCE_DATA_OFFSET).as(Pointer(Void*)).value = instance.as(Void*)
+      allocated
     end
 
     # TypeSlot.pfunc is a void pointer so the struct mirrors the C
@@ -237,7 +275,11 @@ module Pycr
                                           tp_len : ((Py::Object) -> Int64)?,
                                           tp_getitem : ((Py::Object, Py::Object) -> Py::Object)?,
                                           tp_setitem : ((Py::Object, Py::Object, Py::Object) -> Int32)?,
-                                          tp_contains : ((Py::Object, Py::Object) -> Int32)?) : Int32
+                                          tp_contains : ((Py::Object, Py::Object) -> Int32)?,
+                                          tp_compare : ((Py::Object, Py::Object, Int32) -> Py::Object)?,
+                                          tp_add : ((Py::Object, Py::Object) -> Py::Object)?,
+                                          tp_sub : ((Py::Object, Py::Object) -> Py::Object)?,
+                                          tp_mul : ((Py::Object, Py::Object) -> Py::Object)?) : Int32
       next_slot = start
       unless getsets.empty?
         store_tp_data(slots, next_slot, PY_TP_GETSET, getset_table.as(Void*))
@@ -267,6 +309,16 @@ module Pycr
         store_tp_contains(slots, next_slot, PY_SQ_CONTAINS, tp_contains)
         next_slot += 1
       end
+      unless tp_compare.nil?
+        store_tp_compare(slots, next_slot, PY_TP_RICHCOMPARE, tp_compare)
+        next_slot += 1
+      end
+      {% for name, constant in {"add" => "PY_NB_ADD", "sub" => "PY_NB_SUBTRACT", "mul" => "PY_NB_MULTIPLY"} %}
+      unless tp_{{ name.id }}.nil?
+        store_tp_binary(slots, next_slot, {{ constant.id }}, tp_{{ name.id }})
+        next_slot += 1
+      end
+      {% end %}
       next_slot
     end
 
@@ -292,6 +344,22 @@ module Pycr
       entry.slot = slot_id
       entry.pfunc = implementation
       (slots + index).as(UInt8*).copy_from(pointerof(entry).as(UInt8*), sizeof(Py::TypeSlotContains))
+    end
+
+    private def self.store_tp_compare(slots : Py::TypeSlot*, index : Int32, slot_id : Int32,
+                                      implementation : (Py::Object, Py::Object, Int32) -> Py::Object) : Nil
+      entry = Py::TypeSlotCompare.new
+      entry.slot = slot_id
+      entry.pfunc = implementation
+      (slots + index).as(UInt8*).copy_from(pointerof(entry).as(UInt8*), sizeof(Py::TypeSlotCompare))
+    end
+
+    private def self.store_tp_binary(slots : Py::TypeSlot*, index : Int32, slot_id : Int32,
+                                     implementation : (Py::Object, Py::Object) -> Py::Object) : Nil
+      entry = Py::TypeSlotSubscript.new
+      entry.slot = slot_id
+      entry.pfunc = implementation
+      (slots + index).as(UInt8*).copy_from(pointerof(entry).as(UInt8*), sizeof(Py::TypeSlotSubscript))
     end
 
     private def self.store_tp_len(slots : Py::TypeSlot*, index : Int32, slot_id : Int32,

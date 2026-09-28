@@ -54,6 +54,25 @@ module Pycr
       list
     end
 
+    # Exposed class wrapper -> Crystal instance (typed). Used by
+    # comparison and arithmetic thunks; incompatible objects raise
+    # TypeCastError, which those thunks translate to NotImplemented.
+    # Exposed class wrapper -> Crystal instance (typed). Used by
+    # comparison and arithmetic thunks; incompatible objects raise
+    # TypeCastError, which those thunks translate to NotImplemented.
+    def self.from_python_unwrapped(obj : Py::Object, klass : Pycr::PyObject.class) : Void*
+      pointer = Pycr.unwrap_as(obj, klass)
+      raise TypeCastError.new("expected a #{klass} instance") if pointer.nil?
+      pointer
+    end
+
+    # Exposed class instances convert back into Python objects (factory
+    # functions returning instances); the instance is pinned and the
+    # Python side owns the wrapper (see Classes.wrap).
+    def self.to_python(value : Pycr::PyObject) : Py::Object
+      Pycr::Classes.wrap(value)
+    end
+
     # NamedTuple converts to a dict: names become string keys, values
     # convert recursively. Names exist only at compile time, so the
     # members are enumerated in macro space via the double-splat

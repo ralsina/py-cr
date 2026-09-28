@@ -97,6 +97,18 @@ module Pycr
   annotation PyContains
   end
 
+  annotation PyCompare
+  end
+
+  annotation PyAdd
+  end
+
+  annotation PySub
+  end
+
+  annotation PyMul
+  end
+
   annotation PyLen
   end
 
@@ -110,6 +122,11 @@ module Pycr
       {% has_getitem = false %}
       {% has_setitem = false %}
       {% has_contains = false %}
+      {% has_getter = false %}
+      {% has_compare = false %}
+      {% has_add = false %}
+      {% has_sub = false %}
+      {% has_mul = false %}
       {% for node in nodes %}
         {% if node.class_name == "Call" && node.name == :pyattr %}
           {% has_attrs = true %}
@@ -128,6 +145,21 @@ module Pycr
         {% end %}
         {% if node.class_name == "Call" && node.name == :pycontains %}
           {% has_contains = true %}
+        {% end %}
+        {% if node.class_name == "Call" && node.name == :pygetter %}
+          {% has_getter = true %}
+        {% end %}
+        {% if node.class_name == "Call" && node.name == :pycompare %}
+          {% has_compare = true %}
+        {% end %}
+        {% if node.class_name == "Call" && node.name == :pyadd %}
+          {% has_add = true %}
+        {% end %}
+        {% if node.class_name == "Call" && node.name == :pysub %}
+          {% has_sub = true %}
+        {% end %}
+        {% if node.class_name == "Call" && node.name == :pymul %}
+          {% has_mul = true %}
         {% end %}
         {% if node.class_name == "Call" && node.name == :pynew %}
           {% init_def = node.args[0] %}
@@ -303,6 +335,89 @@ module Pycr
               pycr_receiver.{{ contains_def.name }}(pycr_key) ? 1 : 0
             end
           end
+        {% elsif node.class_name == "Call" && node.name == :pygetter %}
+          {% getter_def = node.args[0] %}
+          {{ getter_def }}
+
+          def self.__pygetter_get_{{ getter_def.name }}(self_object : Py::Object, _closure : Void*) : Py::Object
+            Pycr.py_call do
+              pycr_receiver = Pycr.instance_data(self_object).as({{ klass.id }})
+              Pycr::Conversions.to_python(pycr_receiver.{{ getter_def.name }})
+            end
+          end
+
+          def self.__pygetter_set_{{ getter_def.name }}(self_object : Py::Object, _value : Py::Object, _closure : Void*) : Int32
+            Pycr.py_call_int do
+              raise NotImplementedError.new("attribute {{ getter_def.name }} is read-only")
+              0
+            end
+          end
+        {% elsif node.class_name == "Call" && node.name == :pycompare %}
+          {% compare_def = node.args[0] %}
+          {% raise "pycompare requires (other : T, op : Int32)" if compare_def.args.size != 2 %}
+          {{ compare_def }}
+
+          def self.__py_compare(self_object : Py::Object, other_object : Py::Object, op : Int32) : Py::Object
+            Pycr.py_call do
+              pycr_receiver = Pycr.instance_data(self_object).as({{ klass.id }})
+              begin
+                pycr_other = Pycr::Conversions.from_python_unwrapped(other_object, {{ compare_def.args[0].restriction }}).as({{ compare_def.args[0].restriction }})
+              rescue TypeCastError
+                # incompatible type: NotImplemented lets Python fall back
+                Py.Py_IncRef(Pycr.not_implemented)
+                next Pycr.not_implemented
+              end
+              Pycr::Conversions.to_python(pycr_receiver.{{ compare_def.name }}(pycr_other, op))
+            end
+          end
+        {% elsif node.class_name == "Call" && node.name == :pyadd %}
+          {% add_def = node.args[0] %}
+          {{ add_def }}
+
+          def self.__py_add(self_object : Py::Object, other_object : Py::Object) : Py::Object
+            Pycr.py_call do
+              pycr_receiver = Pycr.instance_data(self_object).as({{ klass.id }})
+              begin
+                pycr_other = Pycr::Conversions.from_python_unwrapped(other_object, {{ add_def.args[0].restriction }}).as({{ add_def.args[0].restriction }})
+              rescue TypeCastError
+                Py.Py_IncRef(Pycr.not_implemented)
+                next Pycr.not_implemented
+              end
+              Pycr::Conversions.to_python(pycr_receiver.{{ add_def.name }}(pycr_other))
+            end
+          end
+        {% elsif node.class_name == "Call" && node.name == :pysub %}
+          {% sub_def = node.args[0] %}
+          {{ sub_def }}
+
+          def self.__py_sub(self_object : Py::Object, other_object : Py::Object) : Py::Object
+            Pycr.py_call do
+              pycr_receiver = Pycr.instance_data(self_object).as({{ klass.id }})
+              begin
+                pycr_other = Pycr::Conversions.from_python_unwrapped(other_object, {{ sub_def.args[0].restriction }}).as({{ sub_def.args[0].restriction }})
+              rescue TypeCastError
+                Py.Py_IncRef(Pycr.not_implemented)
+                next Pycr.not_implemented
+              end
+              Pycr::Conversions.to_python(pycr_receiver.{{ sub_def.name }}(pycr_other))
+            end
+          end
+        {% elsif node.class_name == "Call" && node.name == :pymul %}
+          {% mul_def = node.args[0] %}
+          {{ mul_def }}
+
+          def self.__py_mul(self_object : Py::Object, other_object : Py::Object) : Py::Object
+            Pycr.py_call do
+              pycr_receiver = Pycr.instance_data(self_object).as({{ klass.id }})
+              begin
+                pycr_other = Pycr::Conversions.from_python_unwrapped(other_object, {{ mul_def.args[0].restriction }}).as({{ mul_def.args[0].restriction }})
+              rescue TypeCastError
+                Py.Py_IncRef(Pycr.not_implemented)
+                next Pycr.not_implemented
+              end
+              Pycr::Conversions.to_python(pycr_receiver.{{ mul_def.name }}(pycr_other))
+            end
+          end
         {% elsif node.class_name == "Call" && node.name == :pyrepr %}
           {% repr_arg = node.args[0] %}
           {% if repr_arg.class_name == "Def" %}
@@ -356,6 +471,7 @@ module Pycr
         Pycr::Classes.register_class(
           module_object,
           {{ python_name }},
+          self,
           [
             {% for node in nodes %}
               {% if node.class_name == "Call" && node.name == :pymethod %}
@@ -403,7 +519,27 @@ module Pycr
           {% else %}
             nil,
           {% end %}
-          {% if has_attrs %}
+          {% if has_compare %}
+            ->__py_compare(Py::Object, Py::Object, Int32),
+          {% else %}
+            nil,
+          {% end %}
+          {% if has_add %}
+            ->__py_add(Py::Object, Py::Object),
+          {% else %}
+            nil,
+          {% end %}
+          {% if has_sub %}
+            ->__py_sub(Py::Object, Py::Object),
+          {% else %}
+            nil,
+          {% end %}
+          {% if has_mul %}
+            ->__py_mul(Py::Object, Py::Object),
+          {% else %}
+            nil,
+          {% end %}
+          {% if has_attrs || has_getter %}
             [
               {% for node in nodes %}
                 {% if node.class_name == "Call" && node.name == :pyattr %}
@@ -411,6 +547,9 @@ module Pycr
                     {% attr_name = attr.class_name == "TypeDeclaration" ? attr.var : attr.name %}
                     {"{{ attr_name }}", ->__pyattr_get_{{ attr_name }}(Py::Object, Void*), ->__pyattr_set_{{ attr_name }}(Py::Object, Py::Object, Void*)},
                   {% end %}
+                {% end %}
+                {% if node.class_name == "Call" && node.name == :pygetter %}
+                  {"{{ node.args[0].name }}", ->__pygetter_get_{{ node.args[0].name }}(Py::Object, Void*), ->__pygetter_set_{{ node.args[0].name }}(Py::Object, Py::Object, Void*)},
                 {% end %}
               {% end %}
             ]
@@ -492,6 +631,10 @@ module Pycr
         {% has_getitem = false %}
         {% has_setitem = false %}
         {% has_contains = false %}
+        {% has_compare = false %}
+        {% has_add = false %}
+        {% has_sub = false %}
+        {% has_mul = false %}
         {% for method in klass.methods %}
           {% if method.name == :initialize && method.annotation(Pycr::PyNew) %}
             {% init_def = method %}
@@ -516,6 +659,18 @@ module Pycr
           {% end %}
           {% if method.annotation(Pycr::PyContains) %}
             {% has_contains = true %}
+          {% end %}
+          {% if method.annotation(Pycr::PyCompare) %}
+            {% has_compare = true %}
+          {% end %}
+          {% if method.annotation(Pycr::PyAdd) %}
+            {% has_add = true %}
+          {% end %}
+          {% if method.annotation(Pycr::PySub) %}
+            {% has_sub = true %}
+          {% end %}
+          {% if method.annotation(Pycr::PyMul) %}
+            {% has_mul = true %}
           {% end %}
         {% end %}
         {% if init_def %}
@@ -730,6 +885,7 @@ module Pycr
               Pycr::Classes.register_class(
                 module_object,
                 {{ class_name }},
+                self,
                 [
                   {% for method in klass.methods %}
                     {% if method.annotation(Pycr::PyMethod) %}
@@ -767,6 +923,26 @@ module Pycr
                 {% end %}
                 {% if has_contains %}
                   ->__py_contains(Py::Object, Py::Object),
+                {% else %}
+                  nil,
+                {% end %}
+                {% if has_compare %}
+                  ->__py_compare(Py::Object, Py::Object, Int32),
+                {% else %}
+                  nil,
+                {% end %}
+                {% if has_add %}
+                  ->__py_add(Py::Object, Py::Object),
+                {% else %}
+                  nil,
+                {% end %}
+                {% if has_sub %}
+                  ->__py_sub(Py::Object, Py::Object),
+                {% else %}
+                  nil,
+                {% end %}
+                {% if has_mul %}
+                  ->__py_mul(Py::Object, Py::Object),
                 {% else %}
                   nil,
                 {% end %}

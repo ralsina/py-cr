@@ -56,6 +56,12 @@ class CallbackBox < Pycr::PyObject
   end
 end
 
+# Storage for the PyRef remember/recall demo. Lives outside the
+# pyinit block: only pyfunction/pyclass nodes are processed there.
+module DemoStore
+  class_property kept : Pycr::PyRef? = nil
+end
+
 # Greeter: the annotation style (PyO3-like). Discovered and registered
 # automatically by pyinit via Pycr::PyObject.all_subclasses.
 @[Pycr::PyClass("pycr.Greeter")]
@@ -228,6 +234,27 @@ Pycr.pyinit "pycr" do
   Pycr.pyfunction def nothing : Nil
   end
 
+  # Factories: exposed instances returned from plain functions.
+  Pycr.pyfunction def counter_from(value : Int32) : Counter
+    Counter.new(value)
+  end
+
+  Pycr.pyfunction def word_counter_from(text : String) : WordCounter
+    counter = WordCounter.new
+    text.split.each { |word| counter.add(word) }
+    counter
+  end
+
+  Pycr.pyfunction def remember(value : Pycr::PyRef) : Nil
+    DemoStore.kept = value
+  end
+
+  Pycr.pyfunction def recall : Py::Object
+    kept = DemoStore.kept
+    raise ArgumentError.new("nothing remembered") if kept.nil?
+    Pycr::Conversions.to_python(kept)
+  end
+
   Pycr.pyfunction def word_stats(words : Array(String)) : NamedTuple(count: Int32, unique: Int32, longest: String)
     {
       count:   words.size,
@@ -397,6 +424,11 @@ Pycr.pyinit "pycr" do
 
     pyattr count : Int32
 
+    # getter-only attribute (block style): doubling is derived
+    pygetter def doubled : Int32
+      @count * 2
+    end
+
     pyrepr def describe : String
       "Counter(count=#{@count})"
     end
@@ -437,6 +469,27 @@ Pycr.pyinit "pycr" do
 
     pycontains def has?(word : String) : Bool
       @words.includes?(word)
+    end
+
+    # Rich comparison on the word count; op is one of Py_LT..Py_GE.
+    pycompare def compare(other : WordCounter, op : Int32) : Bool
+      mine = @words.size
+      theirs = other.@words.size
+      case op
+      when 0 then mine < theirs
+      when 1 then mine <= theirs
+      when 2 then mine == theirs
+      when 3 then mine != theirs
+      when 4 then mine > theirs
+      else        mine >= theirs
+      end
+    end
+
+    # Arithmetic: concatenation.
+    pyadd def plus(other : WordCounter) : WordCounter
+      merged = WordCounter.new
+      (@words + other.@words).each { |word| merged.add(word) }
+      merged
     end
 
     pyrepr def summary : String
