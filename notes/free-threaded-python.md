@@ -222,10 +222,45 @@ Current empirical state on cpython-3.14.6+freethreaded (uv build):
    bisection: removing either alone still crashed; removing the
    early-registration restored green.
 
-Conclusion: full 3.14t import requires debugging the FT dealloc path
-(QSBR) against Crystal's py_dealloc - a dedicated gdb session with FT
-symbols. The AdoptingContext design remains the right architecture
-once import is stable; nothing in the DSL or ownership model changes.
+Conclusion (SUPERSEDED by the layout probe below): earlier hypothesis
+was QSBR dealloc interplay. The real root cause is simpler and
+measured:
+
+**ROOT CAUSE CONFIRMED - the FT ABI differs:**
+
+Header/layout probe (gcc -DPy_GIL_DISABLED vs regular, python 3.14t
+vs 3.14 headers):
+
+| | regular 3.14 | free-threaded 3.14t |
+|---|---|---|
+| sizeof(PyObject) | 16 | **32** |
+| PyObject.ob_type offset | 8 | **24** |
+| PyModuleDef.m_name offset | 40 | **56** |
+| PyModuleDef.m_size offset | 56 | **72** |
+| PyModuleDef.m_methods offset | 64 | **80** |
+| PyModuleDef/MethodDef/GetSetDef/TypeSpec other fields | same | same |
+
+(+16 bytes of per-interpreter refcount machinery before ob_type under
+Py_GIL_DISABLED.) This explains every 3.14t symptom exactly:
+PyModule_Create2 read our m_size (-1) at the FT m_name offset (56) -
+matches gdb rdi=-1; instance-data writes at +16 would land inside the
+FT PyObject head; and the py_dealloc -32 fault is FT preheader access
+on a mislaid pointer.
+
+**Consequence:** one .so cannot serve both regular and free-threaded
+3.14. Supporting 3.14t requires a separate build:
+1. Compile with `-Dpycr_ft` (Crystal flag) selecting FT layout
+   constants: ob_type read at +24, PyModuleDef fields at 56/72/80/88,
+   INSTANCE_DATA_OFFSET = 32 (FT PyObject size), basicsize = 40.
+2. Add the `cp314t-cp314t-linux_x86_64` wheel tag with the FT-built
+   .so (same pattern PyO3 uses for cp314t wheels).
+3. Ship the Phase 1 boundary mutex (serialize Crystal execution under
+   FT, release during release_gil) since Crystal is compiled
+   single-threaded.
+4. Py_mod_gil declaration stays (proven working on 3.14t).
+
+Everything else (DSL, conversions, ownership, bridge) is layout-
+agnostic and carries over unchanged.
 
 ## 4. Verification & Testing Matrix
 
