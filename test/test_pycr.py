@@ -605,6 +605,24 @@ def main() -> None:
         raise SystemExit("FAIL: wrong keyword signature did not raise")
     print("Callable keyword invocation works; arity mismatches raise TypeError")
 
+    # 24. Slices: pygetitem + pylen compose into Python slice semantics
+    wc = pycr.WordCounter()
+    for word in ("alpha", "beta", "gamma", "delta", "epsilon"):
+        wc.add(word)
+    assert wc[0:2] == ["alpha", "beta"]
+    assert wc[::2] == ["alpha", "gamma", "epsilon"]
+    assert wc[::-1] == list(reversed(["alpha", "beta", "gamma", "delta", "epsilon"]))
+    assert wc[1:100] == ["beta", "gamma", "delta", "epsilon"]  # clamped
+    assert wc[-2:] == ["delta", "epsilon"]
+    assert wc[2] == "gamma"  # plain indexing unaffected
+    g = pycr.Greeter()
+    g.greet("a"); g.greet("b"); g.greet("c")
+    assert g[1:] == ["b", "c"]
+    del wc, g
+    gc.collect()
+    pycr.gc()
+    print("slices: positive/negative/step/clamped, both styles, plain indexing intact")
+
     # everything still works after all that churn
     assert pycr.hello() == "Hello from Crystal!"
     print("still healthy after stress + pin/unpin + threads")

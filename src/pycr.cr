@@ -150,6 +150,8 @@ lib Py
   fun PyBytes_FromStringAndSize(string : UInt8*, size : Int64) : Object
   fun PyBytes_AsStringAndSize(obj : Object, buffer : UInt8**, size : Int64*) : Int32
   fun PyIter_Check(obj : Object) : Int32
+  fun PySlice_Unpack(slice : Object, start : Int64*, stop : Int64*, step : Int64*) : Int32
+  fun PySlice_AdjustIndices(length : Int64, start : Int64*, stop : Int64*, step : Int64) : Int64
   fun PyCallable_Check(obj : Object) : Int32
   fun PyObject_Call(callable : Object, args : Object, kwargs : Object) : Object
   fun PyType_FromSpec(spec : TypeSpec*) : Object
@@ -169,6 +171,7 @@ lib Py
   $index_error = PyExc_IndexError : Object
   $zero_division_error = PyExc_ZeroDivisionError : Object
   $not_implemented_error = PyExc_NotImplementedError : Object
+  $slice_type = PySlice_Type : Object
 end
 
 METH_VARARGS  = 0x0001
@@ -554,6 +557,25 @@ module Pycr
     entry.value.name = cstr(name)
     entry.value.meth = implementation
     entry.value.flags = METH_VARARGS | METH_KEYWORDS
+  end
+
+  # Returns normalized (start, stop, step, count) when *key* is a
+  # slice object, nil for anything else (the thunk then falls through
+  # to normal key conversion). Missing slice endpoints follow Python
+  # rules via PySlice_Unpack/AdjustIndices against the class length.
+  def self.unpack_slice(key : Py::Object, length : Int64) : Tuple(Int64, Int64, Int64, Int64)?
+    # PyObject layout is stable across supported versions: ob_type
+    # sits at offset 8. PySlice_Type is the type object itself (not a
+    # pointer to one), so the symbol's address is what ob_type holds.
+    return if key.as(Pointer(Void*))[1] != pointerof(Py.slice_type).as(Void*)
+    start = 0_i64
+    stop = 0_i64
+    step = 0_i64
+    if Py.PySlice_Unpack(key, pointerof(start), pointerof(stop), pointerof(step)) != 0
+      raise PythonError.new("invalid slice")
+    end
+    count = Py.PySlice_AdjustIndices(length, pointerof(start), pointerof(stop), step)
+    {start, stop, step, count}
   end
 
   # Called by the PyInit fun the pyinit macro generates: resets the

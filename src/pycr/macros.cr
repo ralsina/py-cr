@@ -242,6 +242,36 @@ module Pycr
           def self.__py_getitem(self_object : Py::Object, key_object : Py::Object) : Py::Object
             Pycr.py_call do
               pycr_receiver = Pycr.instance_data(self_object).as({{ klass.id }})
+              {% getitem_key = getitem_def.args[0].restriction.stringify %}
+              {% if getitem_key == "Int32" || getitem_key == "Int64" %}
+                {% len_name = nil %}
+                {% for n in nodes %}
+                  {% if n.class_name == "Call" && n.name == :pylen %}
+                    {% len_name = n.args[0].name %}
+                  {% end %}
+                {% end %}
+                {% if len_name %}
+                  pycr_bounds = Pycr.unpack_slice(key_object, pycr_receiver.{{ len_name }}.to_i64)
+                  unless pycr_bounds.nil?
+                    pycr_start, pycr_stop, pycr_step, pycr_count = pycr_bounds
+                    pycr_result = Py.PyList_New(pycr_count)
+                    pycr_index = pycr_start
+                    pycr_i = 0_i64
+                    while pycr_i < pycr_count
+                      Py.PyList_SetItem(pycr_result, pycr_i, Pycr::Conversions.to_python(pycr_receiver.{{ getitem_def.name }}(
+                        {% if getitem_key == "Int32" %}
+                          pycr_index.to_i32
+                        {% else %}
+                          pycr_index
+                        {% end %}
+                      )))
+                      pycr_index += pycr_step
+                      pycr_i += 1
+                    end
+                    next pycr_result
+                  end
+                {% end %}
+              {% end %}
               pycr_key = Pycr::Conversions.from_python(key_object, {{ getitem_def.args[0].restriction }})
               Pycr::Conversions.to_python(pycr_receiver.{{ getitem_def.name }}(pycr_key))
             end
@@ -636,6 +666,36 @@ module Pycr
                 def self.__py_getitem(self_object : Py::Object, key_object : Py::Object) : Py::Object
                   Pycr.py_call do
                     pycr_receiver = Pycr.instance_data(self_object).as({{ klass.id }})
+                    {% getitem_key = method.args[0].restriction.stringify %}
+                    {% if getitem_key == "Int32" || getitem_key == "Int64" %}
+                      {% len_name = nil %}
+                      {% for m in klass.methods %}
+                        {% if m.annotation(Pycr::PyLen) %}
+                          {% len_name = m.name %}
+                        {% end %}
+                      {% end %}
+                      {% if len_name %}
+                        pycr_bounds = Pycr.unpack_slice(key_object, pycr_receiver.{{ len_name }}.to_i64)
+                        unless pycr_bounds.nil?
+                          pycr_start, pycr_stop, pycr_step, pycr_count = pycr_bounds
+                          pycr_result = Py.PyList_New(pycr_count)
+                          pycr_index = pycr_start
+                          pycr_i = 0_i64
+                          while pycr_i < pycr_count
+                            Py.PyList_SetItem(pycr_result, pycr_i, Pycr::Conversions.to_python(pycr_receiver.{{ method.name }}(
+                            {% if getitem_key == "Int32" %}
+                              pycr_index.to_i32
+                            {% else %}
+                              pycr_index
+                            {% end %}
+                          )))
+                            pycr_index += pycr_step
+                            pycr_i += 1
+                          end
+                          next pycr_result
+                        end
+                      {% end %}
+                    {% end %}
                     pycr_key = Pycr::Conversions.from_python(key_object, {{ method.args[0].restriction }})
                     Pycr::Conversions.to_python(pycr_receiver.{{ method.name }}(pycr_key))
                   end

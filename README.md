@@ -96,8 +96,11 @@ end
   `pycontains def has?(v : T) : Bool` (or the `PyGetItem` /
   `PySetItem` / `PyContains` annotations) wire `obj[i]`, `obj[i] = v`
   and `v in obj`; deletion raises `NotImplementedError`, and Crystal
-  errors map normally (`IndexError` etc.). Iterators keep the owner
-  alive mid-iteration and survive GC cycles.
+  errors map normally (`IndexError` etc.). Classes with both
+  `pygetitem` (integer key) and `pylen` also support Python slices —
+  `wc[0:2]`, `wc[::2]`, `wc[::-1]` — with endpoints normalized by
+  CPython's own `PySlice_Unpack`/`AdjustIndices`. Iterators keep the
+  owner alive mid-iteration and survive GC cycles.
 - **Strings and reprs**: `str()` on any exposed class calls its
   Crystal `to_s` (override `to_s` to customize); `repr()` comes from
   `pyrepr`/`@[Pycr::PyRepr]`.
@@ -137,6 +140,7 @@ end
 | Crystal scheduler (sleep, fibers, channels, IO) on the importing thread, parks under GIL release | working, tested |
 | Iteration protocol: `pyiter`/`pylen` (block + annotation styles), lazy, concurrent-safe | working, tested |
 | Subscript protocols: `pygetitem`/`pysetitem`/`pycontains` (block + annotation styles) | working, tested |
+| Slices over `pygetitem` + `pylen` (PySlice_Unpack/AdjustIndices) | working, tested |
 | Boehm GC under CPython threading: registration at entry, unregistration at exit, serialized collections | working, tested (concurrent collectors + allocators + spinner + napper) |
 | Pin/unpin registry for cross-runtime ownership | working, tested |
 
@@ -187,8 +191,7 @@ The demo module is importable as `pycr` from the repo root.
 2. Attributes with getters only in block style; class methods and
    constructors as `pyfunction`s; `__str__`, rich comparison, arithmetic
    slots.
-3. Sequence protocol extras (slices).
-4. Scheduler bridge: funnel foreign-thread scheduler work to the importing thread's EC (condvar wait under `release_gil`) so IO-capable Crystal calls work from any Python thread.
+3. Scheduler bridge: funnel foreign-thread scheduler work to the importing thread's EC (condvar wait under `release_gil`) so IO-capable Crystal calls work from any Python thread.
 5. Packaging: cibuildwheel, per-CPython-version wheels, then
    limited-API/abi3 discipline.
 
