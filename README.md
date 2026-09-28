@@ -235,11 +235,6 @@ with `--release`.
 4. Packaging: cibuildwheel, per-CPython-version wheels, then
    limited-API/abi3 discipline.
 
-The first real example module lives in `examples/tartrazine`: the
-tartrazine syntax highlighter as `import tartrazine` (highlight,
-tokenize, a Lexer class, themes), 4.7 MB, ~4 ms import, 1.7-2.5x
-faster than pygments on the initial benchmarks.
-
 ## License
 
 MIT
