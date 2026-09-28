@@ -133,6 +133,14 @@ end
     ./build.sh
     python3 test/test_pycr.py
 
+The full suite passes on CPython 3.14 and 3.11 with the same binary:
+the module leaves the Py* symbols undefined and the loading
+interpreter resolves them, and every struct/constant the bindings
+mirror by hand was verified identical in 3.11's and 3.14's headers
+(typeslots, PyMethodDef, PyGetSetDef, PYTHON_API_VERSION 1013,
+Py_TPFLAGS_DEFAULT). New CPython minors should be checked against
+that list before being trusted.
+
 `build.sh` compiles `src/demo.cr` (swap in your own module file) and
 exists because `crystal build --link-arg=-shared` cannot work on Linux
 right now: Crystal mangles some symbols with `@`, and lld, bfd and gold
