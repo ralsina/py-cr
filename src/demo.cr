@@ -12,6 +12,48 @@ def capsule_unpin(capsule : Py::Object)
   Pycr.unpin_capsule(capsule)
 end
 
+# CallbackBox: demonstrates storable callables — a Python callable
+# attached during one call, kept alive in a Crystal ivar (owned via
+# PyRef), and invoked from later calls.
+@[Pycr::PyClass("pycr.CallbackBox")]
+class CallbackBox < Pycr::PyObject
+  @[Pycr::PyNew]
+  def initialize
+    # nil assignment in initialize makes the ivar nilable; Crystal
+    # infers (Callable | Nil) from the attach assignment.
+    @callback = nil
+    @invocations = 0
+  end
+
+  @[Pycr::PyMethod]
+  def attach(func : Pycr::Callable) : Nil
+    @callback = func
+  end
+
+  @[Pycr::PyMethod]
+  def detach : Nil
+    @callback = nil
+  end
+
+  @[Pycr::PyMethod]
+  def invoke(value : Int64) : Int64
+    callback = @callback
+    raise ArgumentError.new("no callback attached") if callback.nil?
+    @invocations += 1
+    Pycr::Conversions.from_python(callback.call(value), Int64)
+  end
+
+  @[Pycr::PyAttr]
+  def invocations : Int32
+    @invocations
+  end
+
+  @[Pycr::PyRepr]
+  def describe : String
+    "CallbackBox(#{@invocations} invocations)"
+  end
+end
+
 # Greeter: the annotation style (PyO3-like). Discovered and registered
 # automatically by pyinit via Pycr::PyObject.all_subclasses.
 @[Pycr::PyClass("pycr.Greeter")]
@@ -184,6 +226,12 @@ Pycr.pyinit "pycr" do
   Pycr.pyfunction def call_plain(func : Pycr::Callable) : Bool
     result = func.call
     Pycr::Conversions.from_python(result, Bool)
+  end
+
+  # Spike introspection: which thread ran the last PyRef finalizer
+  # (-1 unknown, 0 foreign thread, 1 bootstrap thread).
+  Pycr.pyfunction def pyref_finalizer_same_thread : Int32
+    Pycr::PyRef.last_finalizer_same_thread
   end
 
   # Bytes in and out.

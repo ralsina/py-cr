@@ -369,6 +369,83 @@ def main() -> None:
     assert pycr.pinned_count() == 0
     print(f"soak: 300 rounds, RSS growth {growth:.0f} MB, no leaked pins")
 
+    # 19. Storable callables: owned references via PyRef finalizers
+    import sys
+
+    box = pycr.CallbackBox()
+    try:
+        box.invoke(1)
+    except ValueError:
+        pass
+    else:
+        raise SystemExit("FAIL: invoke with nothing attached did not raise")
+
+    def triple(x):
+        return x * 3
+
+    base_refs = sys.getrefcount(triple)
+    box.attach(triple)
+    assert sys.getrefcount(triple) == base_refs + 1, "attach did not incref"
+    assert box.invoke(7) == 21
+
+    # the stored callable keeps working across Boehm collections
+    pycr.stress(2)
+    gc.collect()
+    pycr.gc()
+    assert box.invoke(6) == 18
+    assert box.invocations == 2
+    print("storable callables: attach, invoke, survive collections")
+
+    # detach drops the reference; the Boehm finalizer decrefs at some
+    # collection after the Callable dies (conservative stack scanning
+    # can delay it a cycle or two, hence the churn-and-retry)
+    box.detach()
+    for _ in range(10):
+        garbage = [bytes(64)] * 1024  # scrub the stack
+        del garbage
+        pycr.gc()
+        if sys.getrefcount(triple) == base_refs:
+            break
+    assert sys.getrefcount(triple) == base_refs, "detach did not decref"
+    try:
+        box.invoke(1)
+    except ValueError:
+        pass
+    print("detach decrefs via Boehm finalizer (deterministic under safe_collect)")
+
+    # the Callable conversion itself owns: dropping the Callable
+    # (Python drops the argument tuple) decrefs back to baseline
+    f = lambda x: x + 1
+    base_f = sys.getrefcount(f)
+    for _ in range(100):
+        pycr.apply_func(f, 1)
+    gc.collect()
+    pycr.gc()
+    assert sys.getrefcount(f) == base_f, "transient Callables leaked a reference"
+    print("100 transient Callable conversions, refcount back to baseline")
+
+    # cyclic pattern: the stored callable's closure references Python
+    # objects; no crash, and pins stay clean
+    del box
+    gc.collect()
+    box2 = pycr.CallbackBox()
+    payload = [1, 2, 3]
+
+    def closing(x):
+        return x + len(payload)
+
+    box2.attach(closing)
+    assert box2.invoke(10) == 13
+    del box2, closing
+    gc.collect()
+    pycr.gc()
+    pycr.gc()
+    assert pycr.pinned_count() == 0
+    print("cyclic-pattern cleanup: no crash, no leaked pins")
+
+    thread_id = pycr.pyref_finalizer_same_thread()
+    print(f"finalizer ran on bootstrap thread: {thread_id}")
+
     # everything still works after all that churn
     assert pycr.hello() == "Hello from Crystal!"
     print("still healthy after stress + pin/unpin + threads")

@@ -113,6 +113,20 @@ module Pycr
       Callable.new(obj)
     end
 
+    # Owning reference: increfs via PyRef, decref happens when the
+    # PyRef is collected (see pyref.cr).
+    def self.from_python(obj : Py::Object, type : PyRef.class) : PyRef
+      PyRef.new(obj)
+    end
+
+    # Returns an owned view: the PyRef keeps its own reference, this
+    # increfs for the recipient. Refcount-correct even if the PyRef is
+    # collected afterwards.
+    def self.to_python(value : PyRef) : Py::Object
+      Py.Py_IncRef(value.object)
+      value.object
+    end
+
     def self.from_python(obj : Py::Object, type : Bool.class) : Bool
       result = Py.PyObject_IsTrue(obj)
       raise PythonError.new("expected a bool-like value") if result == -1

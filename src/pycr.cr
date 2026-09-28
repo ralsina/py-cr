@@ -14,6 +14,7 @@
 #   ../demo.cr            an example module built with the DSL
 
 require "./pycr/conversions"
+require "./pycr/pyref"
 require "./pycr/callable"
 require "./pycr/macros"
 require "./pycr/classes"
@@ -224,7 +225,7 @@ module Pycr
   # the first call.
   def self.ensure_thread_registered : Nil
     return unless LibC.pthread_getspecific(boehm_tls_key).null?
-    LibC.pthread_setspecific(boehm_tls_key, Pointer(Void).new(1))
+    LibC.pthread_setspecific(boehm_tls_key, Pointer(Void).new(1_u64))
     LibGC.allow_register_threads
     stack_base = LibGC::FullStackBase.new
     if LibGC.get_stack_base(pointerof(stack_base)) == 0
@@ -353,6 +354,11 @@ module Pycr
     begin
       LibGC.enable
       GC.collect
+      # Drain queued Boehm finalizers synchronously on this thread
+      # (GIL held): PyRef decrefs then happen deterministically at
+      # framework-chosen collection points instead of whenever libgc
+      # feels like running them.
+      LibGC.invoke_finalizers
       LibGC.disable
     ensure
       @@safe_collect_depth.sub(1)

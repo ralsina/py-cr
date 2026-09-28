@@ -72,8 +72,10 @@ end
 - **Conversions**: `String`, `Bool`, `Int32`, `Int64`, `Float64`,
   `Nil` (`None`), `Bytes` in and out, `Array(T)` in and out,
   `Hash(K, V)` in and out, `Tuple` out, `Pycr::Callable` (any Python
-  callable, invocable from Crystal; callback exceptions propagate as
-  themselves), and raw `Py::Object` as an escape hatch. Argument types
+  callable, invocable from Crystal, **storable**: owned through
+  `Pycr::PyRef`, whose Boehm-finalizer decrefs make cross-runtime
+  lifetime work without destructors — `release` for deterministic
+  decrefs), and raw `Py::Object` as an escape hatch. Argument types
   come from the Crystal signatures; wrong types raise Python
   `TypeError`s.
 - **Keyword arguments**: every declared argument of a pyfunction,
@@ -154,12 +156,13 @@ The demo module is importable as `pycr` from the repo root.
 
 ## Roadmap
 
-1. Callables with keyword arguments; owned (storable) callable
-   references with reference-count management.
+1. Callable keyword arguments; `PyRef` as the general storable
+   reference for arbitrary Python objects (it exists; conversions and
+   docs are callable-focused so far).
 2. Attributes with getters only in block style; class methods and
    constructors as `pyfunction`s; `__str__`, rich comparison, arithmetic
    slots.
-3. `NamedTuple`; owned (storable) callable references.
+3. `NamedTuple`; iteration protocol (`tp_iter`/`tp_next`).
 4. Packaging: cibuildwheel, per-CPython-version wheels, then
    limited-API/abi3 discipline.
 

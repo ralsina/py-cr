@@ -45,3 +45,22 @@ and `__crystal_main(argc, argv)` first — nothing on the Crystal side
 documents a supported way to do this from a library. An official
 library-mode entry point (or dlopen-safe lazy init) would remove the
 whole class.
+
+## Addendum: PyRef finalizers (owned references)
+
+Owned Python references (PyRef) anchor their decref to a Boehm
+finalizer. Measured behavior with the collection policy in place:
+
+- Finalizers drained by safe_collect (GC.collect + GC_invoke_finalizers,
+  both under the collect mutex and the GIL) run on the bootstrap
+  thread: `pyref_finalizer_same_thread()` returns 1. The PyGILState
+  guard in the finalizer is therefore belt-and-suspenders today, but
+  it stays: libgc may legally run queued finalizers on its own thread.
+- Conservative stack scanning can keep a dead Callable/PyRef
+  "reachable" for a cycle or two, so finalizer decrefs are eventual,
+  not immediate. PyRef#release gives deterministic decref (idempotent;
+  the finalizer becomes a no-op via the indirection cell).
+- The incref on acquisition is what makes the whole scheme correct
+  under CPython's cycle collector: an invisible Crystal-side reference
+  shows up as a real refcount, so the cycle collector never frees an
+  object the Crystal side may still call.
