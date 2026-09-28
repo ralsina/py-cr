@@ -65,7 +65,7 @@ module Pycr
       spec.value.name = Pycr.cstr("pycr._Iterator")
       spec.value.basicsize = Pycr::INSTANCE_DATA_OFFSET + 8
       spec.value.itemsize = 0
-      spec.value.flags = PY_TPFLAGS_DEFAULT
+      spec.value.flags = PY_TPFLAGS_DEFAULT | PY_TPFLAGS_BASETYPE
       spec.value.slots = slots
 
       @@iterator_slots = slots
@@ -151,7 +151,11 @@ module Pycr
       store_tp_new(slots, 0, PY_TP_NEW, tp_new)
       store_tp_dealloc(slots, 1, PY_TP_DEALLOC, tp_dealloc)
       store_tp_data(slots, 2, PY_TP_METHODS, method_table.as(Void*))
-      next_slot = write_optional_slots(slots, 3, getset_table, getsets, tp_repr,
+      # tp_init: construction happens in tp_new, so init accepts any
+      # arguments and does nothing - this gives subclasses a Python
+      # visible __init__ so super().__init__(...) works.
+      store_tp_noop_init(slots, 3, PY_TP_INIT)
+      next_slot = write_optional_slots(slots, 4, getset_table, getsets, tp_repr,
         tp_iter, tp_len, tp_getitem, tp_setitem, tp_contains, tp_compare,
         tp_add, tp_sub, tp_mul)
       store_tp_unary(slots, next_slot, PY_TP_STR, tp_str)
@@ -160,7 +164,7 @@ module Pycr
       spec.value.name = Pycr.cstr(python_name)
       spec.value.basicsize = Pycr::INSTANCE_DATA_OFFSET + 8
       spec.value.itemsize = 0
-      spec.value.flags = PY_TPFLAGS_DEFAULT
+      spec.value.flags = PY_TPFLAGS_DEFAULT | PY_TPFLAGS_BASETYPE
       spec.value.slots = slots
 
       class_tables[python_name] = {method_table, slots, spec, getset_table}
@@ -346,6 +350,13 @@ module Pycr
       (slots + index).as(UInt8*).copy_from(pointerof(entry).as(UInt8*), sizeof(Py::TypeSlotContains))
     end
 
+    private def self.store_tp_noop_init(slots : Py::TypeSlot*, index : Int32, slot_id : Int32) : Nil
+      entry = Py::TypeSlotAssSubscript.new
+      entry.slot = slot_id
+      entry.pfunc = ->pycr_noop_init(Py::Object, Py::Object, Py::Object)
+      (slots + index).as(UInt8*).copy_from(pointerof(entry).as(UInt8*), sizeof(Py::TypeSlotAssSubscript))
+    end
+
     private def self.store_tp_compare(slots : Py::TypeSlot*, index : Int32, slot_id : Int32,
                                       implementation : (Py::Object, Py::Object, Int32) -> Py::Object) : Nil
       entry = Py::TypeSlotCompare.new
@@ -397,4 +408,10 @@ end
 fun pycr_iterator_iter(self_object : Py::Object) : Py::Object
   Py.Py_IncRef(self_object)
   self_object
+end
+
+# tp_init no-op: construction happened in tp_new; this exists so
+# subclass implementations can call super().__init__(...).
+fun pycr_noop_init(_self : Py::Object, _args : Py::Object, _kwargs : Py::Object) : Int32
+  0
 end

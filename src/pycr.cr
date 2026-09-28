@@ -158,6 +158,11 @@ lib Py
   fun PyBytes_FromStringAndSize(string : UInt8*, size : Int64) : Object
   fun PyBytes_AsStringAndSize(obj : Object, buffer : UInt8**, size : Int64*) : Int32
   fun PyIter_Check(obj : Object) : Int32
+  fun PyObject_IsInstance(obj : Object, cls : Object) : Int32
+  fun PyObject_GC_UnTrack(obj : Object) : Void
+  fun PyObject_GC_Del(obj : Object) : Void
+  fun PyType_GetFlags(type : Object) : UInt64
+  fun PyObject_ClearManagedDict(obj : Object) : Void
   fun PySlice_Unpack(slice : Object, start : Int64*, stop : Int64*, step : Int64*) : Int32
   fun PySlice_AdjustIndices(length : Int64, start : Int64*, stop : Int64*, step : Int64) : Int64
   fun PyCallable_Check(obj : Object) : Int32
@@ -204,6 +209,7 @@ PY_TP_STR           = 70
 PY_TP_GETSET        = 73
 PY_MP_LENGTH        =  4
 PY_TP_RICHCOMPARE   = 67
+PY_TP_INIT          = 60
 PY_NB_ADD           =  7
 PY_NB_SUBTRACT      = 36
 PY_NB_MULTIPLY      = 29
@@ -215,7 +221,8 @@ PY_COMPARE_GT       =  4
 PY_COMPARE_GE       =  5
 
 # object.h: HAVE_STACKLESS_EXTENSION is 0 on stock builds, so DEFAULT is 0.
-PY_TPFLAGS_DEFAULT = 0_u32
+PY_TPFLAGS_DEFAULT  = 0_u32
+PY_TPFLAGS_BASETYPE = 1_u32 << 10
 
 CAPSULE_NAME = "pycr.pinned_string"
 
@@ -230,6 +237,7 @@ end
 # or collects aborts with "Collecting from unknown thread". Register
 # each calling thread once, at boundary entry.
 lib LibC
+  fun dlsym(handle : Void*, symbol : UInt8*) : Void*
   fun pthread_getspecific(key : UInt32) : Void*
   fun pthread_setspecific(key : UInt32, value : Void*) : Int32
   fun pthread_key_create(key : UInt32*, destructor : (Void*) -> Void) : Int32
@@ -261,6 +269,33 @@ def boehm_thread_exit(_value : Void*)
 end
 
 module Pycr
+  # PyObject_ClearManagedDict exists on 3.12+ only; resolved via dlsym
+  # (a static reference would make the .so unloadable on 3.11). No-op
+  # when absent (3.11 subclass dicts are plain refcounted dicts; their
+  # loss is a documented leak, not a crash).
+  @@clear_managed_dict : Pointer(Void) = LibC.dlsym(Pointer(Void).null, "PyObject_ClearManagedDict")
+  @@clear_weakrefs : Pointer(Void) = LibC.dlsym(Pointer(Void).null, "PyUnstable_Object_ClearWeakRefsNoCallbacks")
+
+  def self.clear_weakrefs_ptr : Pointer(Void)
+    @@clear_weakrefs
+  end
+
+  def self.clear_managed_dict_ptr : Pointer(Void)
+    @@clear_managed_dict
+  end
+
+  def self.clear_managed_dict(instance : Py::Object) : Nil
+    unless @@clear_managed_dict.null?
+      function = Proc(Py::Object, Void).new(@@clear_managed_dict, Pointer(Void).null)
+      function.call(instance)
+    end
+  end
+
+  # The type object of *obj* (Py_TYPE: ob_type at offset 8, stable).
+  def self.py_type(obj : Py::Object) : Py::Object
+    obj.as(Pointer(Void*))[1].as(Py::Object)
+  end
+
   # The Py_NotImplemented object pointer is the SYMBOL ADDRESS of
   # _Py_NotImplementedStruct (same indirection as PySlice_Type).
   def self.not_implemented : Py::Object
@@ -308,8 +343,37 @@ module Pycr
   # macro, which registers PyObject.all_subclasses.
   class PyObject
     def self.py_dealloc(instance : Py::Object) : Nil
+      # Read the type BEFORE freeing: PyType_GenericAlloc incref'd it,
+      # and heap-type subclasses need the type decref'd on instance
+      # death or subclass type objects leak.
+      type = Pycr.py_type(instance)
+      # Python subclass instances are GC-tracked (they carry __dict__)
+      # and may carry the PREHEADER (managed weakref + managed dict).
+      # CPython requires, in order: clear weakrefs, untrack, clear the
+      # managed dict - all before the memory is freed. UnTrack and the
+      # clear calls are no-ops when not applicable.
+      # HAVE_GC (1 << 14) decides the whole teardown: GC-allocated
+      # objects (Python subclass instances) are untracked, have their
+      # managed dict cleared, and are freed via PyObject_GC_Del; base
+      # instances are plain allocations freed via PyObject_Free. Never
+      # run the GC sequence on a non-GC object.
+      gc_allocated = (Py.PyType_GetFlags(type) & (1_u64 << 14)) != 0
       Pycr.unpin(Pycr.instance_data(instance))
-      Py.PyObject_Free(instance)
+      if gc_allocated
+        unless Pycr.clear_weakrefs_ptr.null?
+          clear_weakrefs_fn = Proc(Py::Object, Void).new(Pycr.clear_weakrefs_ptr, Pointer(Void).null)
+          clear_weakrefs_fn.call(instance)
+        end
+        Py.PyObject_GC_UnTrack(instance)
+        Pycr.clear_managed_dict(instance)
+      end
+      # Free with the matching allocator (see above).
+      if gc_allocated
+        Py.PyObject_GC_Del(instance)
+      else
+        Py.PyObject_Free(instance)
+      end
+      Py.Py_DecRef(type)
     end
   end
 
@@ -587,12 +651,13 @@ module Pycr
 
   # Unwraps an exposed-class wrapper into its pinned Crystal object,
   # verifying the Python type matches the registered type for *klass*
-  # (exact match: Python subclasses of exposed classes are rejected and
-  # surface as NotImplemented at comparison/arithmetic sites). Returns
-  # nil when the object is not a wrapper of *klass*.
+  # (isinstance semantics: Python subclass instances of exposed classes
+  # carry the subclass as ob_type but hold our pinned Crystal object at
+  # INSTANCE_DATA_OFFSET). Returns nil when the object is not a wrapper
+  # of *klass*.
   def self.unwrap_as(obj : Py::Object, klass : Pycr::PyObject.class) : Void*?
     type = Classes.type_by_class[klass]?
-    return if type.nil? || obj.as(Pointer(Void*))[1] != type
+    return if type.nil? || Py.PyObject_IsInstance(obj, type) != 1
     instance_data(obj)
   end
 

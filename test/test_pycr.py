@@ -657,9 +657,56 @@ def main() -> None:
     payload["key"].append(4)
     assert pycr.recall()["key"] == [1, 2, 3, 4]
     del payload
+    # release section instances: they hold pins until deleted
+    del factory_counter, factory_wc, left, right
     gc.collect()
     pycr.gc()
     print("PyRef: arbitrary Python objects stored with identity preserved")
+
+    # 27. Subclassing: Python classes extending exposed Crystal classes
+    import sys
+
+    class Loud(pycr.Counter):
+        def __init__(self, count=0):
+            super().__init__(count)
+            self.starts = 0
+
+        def increment(self, amount=1):
+            self.starts += 1
+            return super().increment(amount * 2)
+
+    class LoudWC(pycr.WordCounter):
+        pass
+
+    loud = Loud(5)
+    assert loud.value() == 5                    # tp_new ran with subtype
+    assert loud.increment() == 7                # override: 5 + 1*2
+    assert loud.starts == 1                     # Python-side state
+    assert isinstance(loud, pycr.Counter)
+    loud.count = 10                             # inherited pyattr write
+    assert loud.count == 10
+    assert repr(loud) == "Counter(count=10)"    # inherited pyrepr
+    print("subclass: creation, super().__init__, overrides, extra state, inherited slots")
+
+    # compare/arithmetic against subclass instances (isinstance unwrap)
+    lw = LoudWC()
+    lw.add("x"); lw.add("y")
+    base = pycr.WordCounter(); base.add("z")
+    assert lw > base and list(lw + base) == ["x", "y", "z"]
+    del lw, base
+    print("subclass instances work with inherited compare/arithmetic")
+
+    del loud  # still alive from the first block; would hold a pin
+    # type refcount must not drift (dealloc decrefs the type)
+    before = sys.getrefcount(pycr.Counter)
+    for _ in range(200):
+        l = Loud(1); del l
+    for _ in range(200):
+        pycr.Counter(1)
+    gc.collect(); pycr.gc()
+    assert sys.getrefcount(pycr.Counter) == before, "type refcount drifted"
+    assert pycr.pinned_count() == 0
+    print("type refcount stable across 400 subclass/base cycles")
 
     # everything still works after all that churn
     assert pycr.hello() == "Hello from Crystal!"
