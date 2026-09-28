@@ -448,10 +448,11 @@ module Pycr
     -1
   end
 
-  # Suspends the calling thread without involving Crystal's scheduler:
-  # starting the scheduler/event loop from inside CPython crashes the
-  # process, so raw nanosleep is the safe way to wait. Use this instead
-  # of Crystal's sleep in extension code.
+  # Suspends the calling thread without touching Crystal's scheduler.
+  # On the importing thread, Crystal's sleep works (see
+  # notes/scheduler-spike.md); this remains the safe wait on foreign
+  # Python threads, where the scheduler is unavailable, and anywhere
+  # you want to avoid scheduler dependency.
   def self.sleep_seconds(seconds : Float64) : Nil
     request = LibC::Timespec.new
     request.tv_sec = seconds.to_i64

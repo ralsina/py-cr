@@ -93,6 +93,13 @@ end
   keeps it alive, and `tp_dealloc` unpins. NUL-terminated strings that
   CPython keeps beyond a call (capsule names, method tables) are rooted
   the same way.
+- **Scheduler**: Crystal's fiber scheduler, event loop and IO work on
+  the importing thread (`sleep`, `spawn`, channels, sockets, files).
+  Park fibers under `Pycr.release_gil` so other Python threads keep
+  running. Foreign Python threads cannot enter the scheduler - they
+  raise a clean `RuntimeError` (same as stock Crystal 1.21 user
+  threads); compute-only calls work everywhere. See
+  `notes/scheduler-spike.md`.
 - **Threads and GC**: automatic Boehm collection is disabled; every
   Python thread registers itself with Boehm on entry and unregisters at
   exit, and all collections go through one mutex-serialized entry point
@@ -114,13 +121,16 @@ end
 | Exception marshalling with mapping table | working, tested |
 | `pyinit`/`pyfunction`/`pyclass` DSL + annotation style, kwargs, name overrides, `pyattr` | working, tested |
 | GIL release around long work | working, tested (ticker thread runs ~7M iterations during `nap`) |
+| Crystal scheduler (sleep, fibers, channels, IO) on the importing thread, parks under GIL release | working, tested |
 | Boehm GC under CPython threading: registration at entry, unregistration at exit, serialized collections | working, tested (concurrent collectors + allocators + spinner + napper) |
 | Pin/unpin registry for cross-runtime ownership | working, tested |
 
 ### Known limitations
 
-- **Crystal's scheduler cannot start** inside CPython (`sleep`, fibers,
-  async IO all segfault); `Pycr.sleep_seconds` is the safe wait.
+- **Scheduler access is thread-affine**: foreign Python threads cannot
+  run fibers/IO/sleep (clean `RuntimeError`); funnel those calls to
+  the importing thread. `Pycr.sleep_seconds` is the scheduler-free
+  wait for foreign threads.
 - `Pycr.heap_size` takes libgc's internal lock: do not call it from one
   thread while another collects.
 - Macro-*emitted* annotations lose their arguments in Crystal 1.21, so

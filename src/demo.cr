@@ -32,7 +32,9 @@ class CallbackBox < Pycr::PyObject
 
   @[Pycr::PyMethod]
   def detach : Nil
-    @callback = nil
+    callback = @callback
+    callback.release unless callback.nil?  # deterministic decref
+    @callback = nil                        # finalizer is the safety net
   end
 
   @[Pycr::PyMethod]
@@ -243,6 +245,47 @@ Pycr.pyinit "pycr" do
     result = Bytes.new(data.size * times)
     result.each_index { |index| result[index] = data[index % data.size] }
     result
+  end
+
+  # --- Scheduler spike probes (notes/scheduler-spike.md) --------------------
+  # One probe per layer of Crystal's runtime that historically crashed in
+  # library mode: Thread.current -> root Fiber -> event loop.
+
+  # Rung 1a: the original crasher.
+  Pycr.pyfunction def crystal_sleep(seconds : Float64) : Nil
+    sleep seconds
+  end
+
+  # Rung 1b: fiber spawn + channel round-trip (starts the scheduler).
+  Pycr.pyfunction def fiber_roundtrip(value : Int64) : Int64
+    channel = Channel(Int64).new
+    spawn do
+      channel.send(value * 2)
+    end
+    channel.receive
+  end
+
+  # Rung 1c: many fibers fanned out and joined.
+  Pycr.pyfunction def spawn_many(count : Int32) : Int64
+    channel = Channel(Int64).new
+    count.times do |index|
+      spawn do
+        channel.send(index.to_i64 * 2)
+      end
+    end
+    total = 0_i64
+    count.times { total += channel.receive }
+    total
+  end
+
+  # Rung 1d: file IO.
+  Pycr.pyfunction def read_file(path : String) : String
+    File.read(path)
+  end
+
+  # Rung 2: fiber park under GIL release — the starvation test.
+  Pycr.pyfunction def fiber_sleep_under_gil_release(seconds : Float64) : Nil
+    Pycr.release_gil { sleep seconds }
   end
 
   # Block-style classes are registered by the same pyinit.

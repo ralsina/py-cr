@@ -396,22 +396,16 @@ def main() -> None:
     assert box.invocations == 2
     print("storable callables: attach, invoke, survive collections")
 
-    # detach drops the reference; the Boehm finalizer decrefs at some
-    # collection after the Callable dies (conservative stack scanning
-    # can delay it a cycle or two, hence the churn-and-retry)
+    # detach releases deterministically (Callable#release -> PyRef#release);
+    # dropping without release would also decref, eventually, via the
+    # Boehm finalizer (conservatism makes its timing unbounded)
     box.detach()
-    for _ in range(10):
-        garbage = [bytes(64)] * 1024  # scrub the stack
-        del garbage
-        pycr.gc()
-        if sys.getrefcount(triple) == base_refs:
-            break
     assert sys.getrefcount(triple) == base_refs, "detach did not decref"
     try:
         box.invoke(1)
     except ValueError:
         pass
-    print("detach decrefs via Boehm finalizer (deterministic under safe_collect)")
+    print("detach decrefs deterministically; finalizer is the safety net")
 
     # the Callable conversion itself owns: dropping the Callable
     # (Python drops the argument tuple) decrefs back to baseline
@@ -419,8 +413,13 @@ def main() -> None:
     base_f = sys.getrefcount(f)
     for _ in range(100):
         pycr.apply_func(f, 1)
-    gc.collect()
-    pycr.gc()
+    for _ in range(10):
+        garbage = [bytes(64)] * 1024  # scrub stale stack words
+        del garbage
+        gc.collect()
+        pycr.gc()
+        if sys.getrefcount(f) == base_f:
+            break
     assert sys.getrefcount(f) == base_f, "transient Callables leaked a reference"
     print("100 transient Callable conversions, refcount back to baseline")
 
@@ -445,6 +444,47 @@ def main() -> None:
 
     thread_id = pycr.pyref_finalizer_same_thread()
     print(f"finalizer ran on bootstrap thread: {thread_id}")
+
+    # 20. Scheduler on the importing thread (spike results, now
+    #     regression-tested: notes/scheduler-spike.md)
+    pycr.crystal_sleep(0.02)
+    assert pycr.fiber_roundtrip(21) == 42
+    assert pycr.spawn_many(500) == 500 * 499
+    assert len(pycr.read_file("/etc/hostname")) > 0
+    print("scheduler on importing thread: sleep, fibers, channels, fan-out, file IO")
+
+    # fiber park under GIL release: spinner keeps running
+    ticks = [0]
+    stop = [False]
+
+    def fiber_spinner():
+        while not stop[0]:
+            ticks[0] += 1
+
+    fs = threading.Thread(target=fiber_spinner)
+    fs.start()
+    pycr.fiber_sleep_under_gil_release(0.15)
+    stop[0] = True
+    fs.join()
+    assert ticks[0] > 100_000, "spinner starved during fiber park"
+    print(f"fiber park under release_gil: spinner ran {ticks[0]} ticks")
+
+    # foreign Python threads cannot enter the scheduler: clean
+    # RuntimeError (this matches stock Crystal 1.21, where only the
+    # main thread and EC pool threads have schedulers)
+    foreign_errors = []
+
+    def foreign():
+        try:
+            pycr.crystal_sleep(0.01)
+        except RuntimeError as error:
+            foreign_errors.append(str(error))
+
+    ft = threading.Thread(target=foreign)
+    ft.start()
+    ft.join()
+    assert foreign_errors and "cannot be nil" in foreign_errors[0], foreign_errors
+    print("foreign threads: scheduler entry raises clean RuntimeError (stock Crystal behavior)")
 
     # everything still works after all that churn
     assert pycr.hello() == "Hello from Crystal!"

@@ -19,6 +19,13 @@ module Pycr
       @ref.object
     end
 
+    # Deterministic decref (idempotent). Storage can just drop the
+    # Callable - the PyRef finalizer decrefs eventually - but code that
+    # needs the reference count to drop at a known point releases.
+    def release : Nil
+      @ref.release
+    end
+
     # Calls the callable, converting every argument through
     # Pycr::Conversions.to_python. Returns the raw result object;
     # convert it with Pycr::Conversions.from_python. If the callable
