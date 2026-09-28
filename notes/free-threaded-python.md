@@ -198,6 +198,35 @@ Since Crystal 1.21+ already compiles with multi-threading and the `Parallel` exe
 
 ---
 
+## Empirical findings (3.14t spike, updated)
+
+Current empirical state on cpython-3.14.6+freethreaded (uv build):
+
+1. **Import crashes at PyUnicode_FromString inside PyModule_Create2**
+   with our py_dealloc frames - reproducible, independent of SetGIL,
+   Boehm early registration, or the registry mutex. Under FT, the
+   interpreter's deferred-reclamation (QSBR) machinery appears to
+   process a dealloc of one of our registered-type objects during
+   module creation, and our py_dealloc then faults at a negative
+   offset (preheader-style access on a bad pointer). A 15-line plain
+   C module with the identical PyModule_Create2 pattern imports
+   cleanly on 3.14t, so the delta is the Crystal runtime state
+   (init_runtime + Boehm + signal handlers), not the module def.
+2. **Early Boehm registration at PyInit does not fix it** and, when
+   combined with concurrent explicit collections on REGULAR builds,
+   re-introduced "Signals delivery fails constantly" aborts
+   (main-thread double-registration corrupts Boehm's thread list).
+   Removed: the importing thread is implicitly registered; foreign
+   threads register via py_call as before.
+3. The **registry mutex and SetGIL-at-import were also ruled out** by
+   bisection: removing either alone still crashed; removing the
+   early-registration restored green.
+
+Conclusion: full 3.14t import requires debugging the FT dealloc path
+(QSBR) against Crystal's py_dealloc - a dedicated gdb session with FT
+symbols. The AdoptingContext design remains the right architecture
+once import is stable; nothing in the DSL or ownership model changes.
+
 ## 4. Verification & Testing Matrix
 
 To certify free-threading compatibility:

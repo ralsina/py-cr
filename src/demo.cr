@@ -327,7 +327,7 @@ Pycr.pyinit "pycr" do
 
   # Rung 1a: the original crasher.
   Pycr.pyfunction def crystal_sleep(seconds : Float64) : Nil
-    sleep seconds.seconds
+    sleep seconds
   end
 
   # Rung 1b: fiber spawn + channel round-trip (starts the scheduler).
@@ -359,7 +359,7 @@ Pycr.pyinit "pycr" do
 
   # Rung 2: fiber park under GIL release — the starvation test.
   Pycr.pyfunction def fiber_sleep_under_gil_release(seconds : Float64) : Nil
-    Pycr.release_gil { sleep seconds.seconds }
+    Pycr.release_gil { sleep seconds }
   end
 
   # Scheduler bridge: scheduler-requiring work from any thread. The
@@ -369,7 +369,7 @@ Pycr.pyinit "pycr" do
   # embedding (see notes/scheduler-spike.md). Use blocking IO.
   Pycr.pyfunction def bridge_sleep(seconds : Float64) : String
     message = Pycr::Bridge.run do
-      sleep seconds.seconds
+      sleep seconds
       "slept #{seconds}s on the bridge"
     end
     message
@@ -386,7 +386,7 @@ Pycr.pyinit "pycr" do
   # through the adopted context's event loop).
   Pycr.pyfunction def adopt_sleep(seconds : Float64) : String
     Pycr::AdoptingContext.for_current_thread("pycr-adapted")
-    sleep seconds.seconds
+    sleep seconds
     "adopted sleep #{seconds}s"
   end
 

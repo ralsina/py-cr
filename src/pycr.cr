@@ -21,16 +21,9 @@ require "./pycr/callable"
 require "./pycr/macros"
 require "./pycr/classes"
 
-# CPython bindings. POLICY (see notes/api-policy.md): every fun
-# declared here is stable ABI (verified against the official list;
-# audit date in notes). Unstable/FT-only functions are dlsym'd instead
-# (see @@clear_managed_dict / @@clear_weakrefs / @@set_gil below).
-# Struct mirrors carry their contract status at each declaration.
 lib Py
   alias Object = Void*
 
-  # PyMethodDef mirror. CONTRACT: de-facto stable (used by limited-API
-  # extensions); doc stays NULL.
   struct MethodDef
     name : UInt8*
     meth : (Object, Object, Object) -> Object
@@ -38,8 +31,7 @@ lib Py
     doc : UInt8*
   end
 
-  # PyGetSetDef mirror (descrobject.h) for pyattr attributes.
-  # CONTRACT: de-facto stable; doc and closure stay NULL.
+  # Mirror of PyGetSetDef (descrobject.h) for pyattr attributes.
   struct GetSetDef
     name : UInt8*
     get : (Object, Void*) -> Object
@@ -48,10 +40,10 @@ lib Py
     closure : Void*
   end
 
-  # PyModuleDef mirror. CONTRACT: de-facto stable - allocated by us
-  # and passed to the stable-ABI PyModule_Create2; unused trailing
-  # fields stay zeroed. Field order after the embedded PyModuleDef_Base
-  # matters: get it wrong and CPython reads garbage as the module name.
+  # Byte-for-byte mirror of CPython's PyModuleDef (single-phase init:
+  # m_slots is null). The field order and the m_name/m_doc fields after
+  # the embedded PyModuleDef_Base matter: get them wrong and CPython
+  # reads garbage as the module name.
   struct ModuleDef
     ob_refcnt : Int64 # PyObject.ob_refcnt
     ob_type : Void*   # PyObject.ob_type
@@ -126,9 +118,7 @@ lib Py
     pfunc : (Object, Object, Int32) -> Object
   end
 
-  # PyType_Spec mirror (object.h), used with PyType_FromSpec.
-  # CONTRACT: part of the stable ABI - FromSpec is the limited-API type
-  # creation mechanism, so this layout is guaranteed, not de-facto.
+  # Mirror of PyType_Spec (object.h), used with PyType_FromSpec.
   struct TypeSpec
     name : UInt8*
     basicsize : Int32
@@ -236,9 +226,6 @@ PY_TPFLAGS_BASETYPE = 1_u32 << 10
 
 CAPSULE_NAME = "pycr.pinned_string"
 
-# moduleobject.h (FT builds): Py_MOD_GIL_NOT_USED
-PY_MOD_GIL_NOT_USED = Pointer(Void).new(1_u64)
-
 lib LibCrystalMain
   @[Raises]
   fun __crystal_main(argc : Int32, argv : UInt8**)
@@ -288,25 +275,10 @@ module Pycr
   # loss is a documented leak, not a crash).
   @@clear_managed_dict : Pointer(Void) = LibC.dlsym(Pointer(Void).null, "PyObject_ClearManagedDict")
   @@clear_weakrefs : Pointer(Void) = LibC.dlsym(Pointer(Void).null, "PyUnstable_Object_ClearWeakRefsNoCallbacks")
-  # Free-threaded builds only (3.13t+); null on regular builds.
-  @@set_gil : Pointer(Void) = LibC.dlsym(Pointer(Void).null, "PyUnstable_Module_SetGIL")
 
   def self.clear_weakrefs_ptr : Pointer(Void)
     @@clear_weakrefs
   end
-
-  # Marks a freshly created module as safe without the GIL (free-threaded
-  # builds). Without this, CPython re-enables the GIL process-wide on
-  # first import of the module, which crashes our boundary.
-  def self.module_gil=(module_object : Py::Object) : Nil
-    return if @@set_gil.null?
-    set_gil_fn = Proc(Py::Object, Pointer(Void), Nil).new(@@set_gil, Pointer(Void).null)
-    set_gil_fn.call(module_object, PY_MOD_GIL_NOT_USED)
-  end
-
-  # Raw pthread mutex guarding the pin registry: under free-threaded
-  # CPython, deallocs and thunks run concurrently on multiple threads.
-  @@registry_mutex : Pointer(LibC::PthreadMutexT) = Pointer(LibC::PthreadMutexT).malloc(1)
 
   def self.clear_managed_dict_ptr : Pointer(Void)
     @@clear_managed_dict
@@ -421,20 +393,12 @@ module Pycr
     @@registry ||= Set(Void*).new
   end
 
-  private def self.registry_mutex : LibC::PthreadMutexT*
-    @@registry_mutex ||= Pointer(LibC::PthreadMutexT).malloc(1)
-  end
-
   def self.pin(pointer : Void*) : Nil
-    LibC.pthread_mutex_lock(registry_mutex)
     registry << pointer
-    LibC.pthread_mutex_unlock(registry_mutex)
   end
 
   def self.unpin(pointer : Void*) : Nil
-    LibC.pthread_mutex_lock(registry_mutex)
     registry.delete(pointer)
-    LibC.pthread_mutex_unlock(registry_mutex)
   end
 
   def self.pinned?(pointer : Void*) : Bool
