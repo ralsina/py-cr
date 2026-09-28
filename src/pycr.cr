@@ -21,9 +21,16 @@ require "./pycr/callable"
 require "./pycr/macros"
 require "./pycr/classes"
 
+# CPython bindings. POLICY (see notes/api-policy.md): every fun
+# declared here is stable ABI (verified against the official list;
+# audit date in notes). Unstable/FT-only functions are dlsym'd instead
+# (see @@clear_managed_dict / @@clear_weakrefs / @@set_gil below).
+# Struct mirrors carry their contract status at each declaration.
 lib Py
   alias Object = Void*
 
+  # PyMethodDef mirror. CONTRACT: de-facto stable (used by limited-API
+  # extensions); doc stays NULL.
   struct MethodDef
     name : UInt8*
     meth : (Object, Object, Object) -> Object
@@ -31,7 +38,8 @@ lib Py
     doc : UInt8*
   end
 
-  # Mirror of PyGetSetDef (descrobject.h) for pyattr attributes.
+  # PyGetSetDef mirror (descrobject.h) for pyattr attributes.
+  # CONTRACT: de-facto stable; doc and closure stay NULL.
   struct GetSetDef
     name : UInt8*
     get : (Object, Void*) -> Object
@@ -40,10 +48,10 @@ lib Py
     closure : Void*
   end
 
-  # Byte-for-byte mirror of CPython's PyModuleDef (single-phase init:
-  # m_slots is null). The field order and the m_name/m_doc fields after
-  # the embedded PyModuleDef_Base matter: get them wrong and CPython
-  # reads garbage as the module name.
+  # PyModuleDef mirror. CONTRACT: de-facto stable - allocated by us
+  # and passed to the stable-ABI PyModule_Create2; unused trailing
+  # fields stay zeroed. Field order after the embedded PyModuleDef_Base
+  # matters: get it wrong and CPython reads garbage as the module name.
   struct ModuleDef
     ob_refcnt : Int64 # PyObject.ob_refcnt
     ob_type : Void*   # PyObject.ob_type
@@ -118,7 +126,9 @@ lib Py
     pfunc : (Object, Object, Int32) -> Object
   end
 
-  # Mirror of PyType_Spec (object.h), used with PyType_FromSpec.
+  # PyType_Spec mirror (object.h), used with PyType_FromSpec.
+  # CONTRACT: part of the stable ABI - FromSpec is the limited-API type
+  # creation mechanism, so this layout is guaranteed, not de-facto.
   struct TypeSpec
     name : UInt8*
     basicsize : Int32
@@ -227,7 +237,7 @@ PY_TPFLAGS_BASETYPE = 1_u32 << 10
 CAPSULE_NAME = "pycr.pinned_string"
 
 # moduleobject.h (FT builds): Py_MOD_GIL_NOT_USED
-PY_MOD_GIL_NOT_USED = Pointer(Void).new(1)
+PY_MOD_GIL_NOT_USED = Pointer(Void).new(1_u64)
 
 lib LibCrystalMain
   @[Raises]
