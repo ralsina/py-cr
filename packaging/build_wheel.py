@@ -82,9 +82,30 @@ def main() -> None:
                 libgc = candidate
                 break
     if libgc is None:
+        # find_library returns a bare soname on Linux; resolve it via
+        # ldconfig's cache over the multiarch dirs.
         found = ctypes.util.find_library("gc")
         if found:
-            libgc = found
+            try:
+                cache = subprocess.run(
+                    ["ldconfig", "-p"], capture_output=True, text=True
+                ).stdout
+                for line in cache.splitlines():
+                    if found in line:
+                        libgc = line.split("=>")[-1].strip()
+                        break
+            except OSError:
+                pass
+            if libgc is None:
+                for directory in (
+                    "/usr/lib/x86_64-linux-gnu",
+                    "/usr/lib64",
+                    "/usr/lib",
+                ):
+                    candidate = os.path.join(directory, found)
+                    if os.path.exists(candidate):
+                        libgc = candidate
+                        break
     if libgc is None:
         sys.exit("libgc.so.1 not found - install the gc runtime package")
 
