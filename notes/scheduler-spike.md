@@ -123,3 +123,32 @@ concurrent foreign callers.
   adoption (NilAssertionError).
 - Macro-heredoc batch edits failed silently repeatedly; use small
   verified edits.
+
+## Addendum 3: free-threaded CPython (3.14t) - status: blocked, investigated
+
+Tested with uv cpython-3.14.6+freethreaded (PEP 703 build, GIL off).
+
+What works / was proven:
+- PyUnstable_Module_SetGIL(m, Py_MOD_GIL_NOT_USED) after
+  PyModule_Create2 is the correct single-phase-init pattern for FT
+  builds (proven with a 15-line C module); without it, CPython
+  re-enables the GIL process-wide on first import of an extension
+  that lacks a Py_mod_gil declaration, and that transition segfaults
+  with our module (reproduced with a plain C module too - not
+  py-cr-specific).
+- 3.14t headers are byte-identical to regular 3.14 headers
+  (moduleobject.h, object.h): no layout drift for our mirrors.
+
+What breaks:
+- Full pycr import on 3.14t still segfaults inside PyUnicode_FromString
+  called from PyInit, with our py_dealloc frames above it - i.e. a
+  dealloc of one of our wrapped objects fires during module init under
+  FT's deferred-reclamation (QSBR) reclamation machinery. Suspects:
+  Crystal.init_runtime interaction with FT thread state, or our
+  py_dealloc running on QSBR-reclaimed instances. Needs a
+  dedicated session with gdb; all groundwork (SetGIL call site, pin
+  registry mutex, dealloc lifecycle) is already in place.
+
+Thread-safety hardening that shipped regardless (correct under any
+build): pin registry behind a raw pthread mutex; SetGIL is dlsym'd
+(no-op on regular builds).

@@ -27,6 +27,9 @@ import sys
 import sysconfig
 
 VERSION = "0.1.0"
+# PyPI distribution name (import name stays `pycr` - the PyYAML->yaml
+# decoupling: the wheel is `py-crystal`, the module is `pycr`).
+DIST_NAME = "py-crystal"
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SO = os.path.join(ROOT, "pycr.so")
 LIBGC_CANDIDATES = ["/usr/lib/libgc.so.1", "/usr/lib64/libgc.so.1"]
@@ -41,7 +44,7 @@ Root-Is-Purelib: false
 """
 
 METADATA_TEMPLATE = """Metadata-Version: 2.1
-Name: pycr
+Name: py-crystal
 Version: {version}
 Summary: Write Python extension modules in Crystal
 Requires-Python: >=3.11
@@ -114,7 +117,7 @@ def main() -> None:
     # metadata's Tag lines for the full set.
     py_set = ".".join(PY_TAGS)
     abi_set = ".".join(PY_TAGS)
-    filename = f"pycr-{VERSION}-{py_set}-{abi_set}-{PLATFORM}.whl"
+    filename = f"{DIST_NAME.replace('-', '_')}-{VERSION}-{py_set}-{abi_set}-{PLATFORM}.whl"
 
     dist_dir = os.path.join(ROOT, "dist")
     os.makedirs(dist_dir, exist_ok=True)
@@ -137,12 +140,12 @@ def main() -> None:
         add(zf, "pycr/__init__.py", init_py.encode())
         add(zf, "pycr/pycr.so", open(SO, "rb").read())
         add(zf, "pycr/libgc.so.1", open(libgc, "rb").read())
-        add(zf, f"pycr-{VERSION}.dist-info/METADATA", metadata.encode())
-        add(zf, f"pycr-{VERSION}.dist-info/WHEEL", wheel_meta.encode())
+        add(zf, f"{DIST_NAME.replace('-', '_')}-{VERSION}.dist-info/METADATA", metadata.encode())
+        add(zf, f"{DIST_NAME.replace('-', '_')}-{VERSION}.dist-info/WHEEL", wheel_meta.encode())
 
         # RECORD: hashes for everything except itself (empty hash)
         record_lines = [f"{name},{sha},{size}" for name, sha, size in records]
-        record_lines.append(f"pycr-{VERSION}.dist-info/RECORD,,")
+        record_lines.append(f"{DIST_NAME.replace('-', '_')}-{VERSION}.dist-info/RECORD,,")
         zf.writestr(f"pycr-{VERSION}.dist-info/RECORD", "\n".join(record_lines).encode())
 
     size_mb = os.path.getsize(out_path) / 1e6
