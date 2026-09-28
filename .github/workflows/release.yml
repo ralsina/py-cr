@@ -1,0 +1,50 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  wheel:
+    # 22.04 for an older glibc: wheels built here run on a wider range
+    # of systems (Ubuntu 22.04+, Debian 12+, RHEL 9+).
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Crystal
+        uses: crystal-lang/install-crystal@v1
+        with:
+          crystal: "1.21.0"
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Build extension
+        run: ./build.sh
+
+      - name: Build wheel
+        run: python3 packaging/build_wheel.py
+
+      - name: Smoke-test the wheel in a clean venv
+        run: |
+          python3 -m venv /tmp/wheel-venv
+          /tmp/wheel-venv/bin/pip install --quiet dist/*.whl
+          cd /tmp
+          /tmp/wheel-venv/bin/python -c "
+          import pycr
+          assert pycr.hello() == 'Hello from Crystal!'
+          c = pycr.Counter(5)
+          assert c.increment(3) == 8
+          print('wheel smoke test passed:', pycr.__version__)
+          "
+
+      - name: Create release and attach wheel
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*.whl
+          generate_release_notes: true
