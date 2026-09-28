@@ -225,6 +225,10 @@ inputs; pygments 2.18.x for comparison):
 Debug builds are roughly 5x slower — always ship extension modules
 with `--release`.
 
+## Building from source
+
+The wheel is assembled by `packaging/build_wheel.py` (see below).
+
 ## Packaging
 
 The `pycr` module ships as a self-contained wheel:
