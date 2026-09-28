@@ -71,7 +71,9 @@ end
 
 - **Conversions**: `String`, `Bool`, `Int32`, `Int64`, `Float64`,
   `Nil` (`None`), `Array(T)` in and out, `Hash(K, V)` in and out,
-  `Tuple` out, and raw `Py::Object` as an escape hatch. Argument types
+  `Tuple` out, `Pycr::Callable` (any Python callable, invocable from
+  Crystal; callback exceptions propagate as themselves), and raw
+  `Py::Object` as an escape hatch. Argument types
   come from the Crystal signatures; wrong types raise Python
   `TypeError`s.
 - **Keyword arguments**: every declared argument of a pyfunction,
@@ -141,14 +143,19 @@ The demo module is importable as `pycr` from the repo root.
 
 ## Roadmap
 
-1. Attributes with getters only in block style; class methods and
+1. Callables with keyword arguments; owned (storable) callable
+   references with reference-count management.
+2. Attributes with getters only in block style; class methods and
    constructors as `pyfunction`s; `__str__`, rich comparison, arithmetic
    slots.
 3. Buffers/bytes conversions; `NamedTuple`.
 4. Packaging: cibuildwheel, per-CPython-version wheels, then
    limited-API/abi3 discipline.
-5. A second example module (something real, e.g. a syntax highlighter)
-   to shake out ergonomics.
+
+The first real example module lives in `examples/tartrazine`: the
+tartrazine syntax highlighter as `import tartrazine` (highlight,
+tokenize, a Lexer class, themes), 4.7 MB, ~4 ms import, 1.7-2.5x
+faster than pygments on the initial benchmarks.
 
 ## License
 

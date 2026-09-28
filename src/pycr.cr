@@ -14,6 +14,7 @@
 #   ../demo.cr            an example module built with the DSL
 
 require "./pycr/conversions"
+require "./pycr/callable"
 require "./pycr/macros"
 require "./pycr/classes"
 
@@ -121,6 +122,8 @@ lib Py
   fun PyDict_Next(dict : Object, position : Int64*, key : Object*, value : Object*) : Int32
   fun PyCapsule_New(pointer : Void*, name : UInt8*, destructor : (Object) -> Void) : Object
   fun PyCapsule_GetPointer(capsule : Object, name : UInt8*) : Void*
+  fun PyCallable_Check(obj : Object) : Int32
+  fun PyObject_Call(callable : Object, args : Object, kwargs : Object) : Object
   fun PyType_FromSpec(spec : TypeSpec*) : Object
   fun PyType_GenericAlloc(type : Object, items : Int64) : Object
   fun PyObject_Free(ptr : Void*) : Void

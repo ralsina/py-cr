@@ -306,6 +306,32 @@ def main() -> None:
     assert naps_done[0] > 10
     print(f"melee: collectors raced a spinner ({spin_ticks[0]} ticks) and a napper ({naps_done[0]} naps)")
 
+    # 16. Python callables as arguments
+    assert pycr.apply_func(lambda x: x * 2, 21) == 42
+    assert pycr.apply_func(abs, -5) == 5
+    assert pycr.map_ints(lambda v: v + 1, [1, 2, 3]) == [2, 3, 4]
+    assert pycr.call_two(lambda a, b: a + b, "foo", "bar") == "foobar"
+    assert pycr.call_plain(lambda: True) is True
+    print("callables: lambdas, builtins, multi-arg and no-arg callbacks work")
+
+    # callback exceptions propagate as themselves through the boundary
+    for call, label in (
+        (lambda: pycr.apply_func(lambda x: 1 / 0, 1), "ZeroDivisionError in callback"),
+        (lambda: pycr.apply_func(lambda x: x + "s", 1), "TypeError in callback"),
+        (lambda: pycr.apply_func(lambda x: x, 1, 2), "wrong arity callback"),
+        (lambda: pycr.apply_func(42, 1), "non-callable argument"),
+    ):
+        try:
+            call()
+        except (ZeroDivisionError, TypeError):
+            pass
+        else:
+            raise SystemExit(f"FAIL: {label} did not raise")
+
+    # a callback that re-enters the extension
+    assert pycr.apply_func(lambda x: pycr.add(x, 1), 41) == 42
+    print("callback exceptions propagate; re-entrant callbacks work")
+
     # everything still works after all that churn
     assert pycr.hello() == "Hello from Crystal!"
     print("still healthy after stress + pin/unpin + threads")

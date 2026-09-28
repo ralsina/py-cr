@@ -89,6 +89,13 @@ module Pycr
       obj
     end
 
+    def self.from_python(obj : Py::Object, type : Callable.class) : Callable
+      if Py.PyCallable_Check(obj) == 0
+        raise TypeCastError.new("expected a callable")
+      end
+      Callable.new(obj)
+    end
+
     def self.from_python(obj : Py::Object, type : Bool.class) : Bool
       result = Py.PyObject_IsTrue(obj)
       raise PythonError.new("expected a bool-like value") if result == -1

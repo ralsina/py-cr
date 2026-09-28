@@ -165,6 +165,27 @@ Pycr.pyinit "pycr" do
     "#{text}|#{flag}|#{other}|#{third}"
   end
 
+  # Python callables as arguments: the wrapper borrows the reference
+  # for the duration of the call.
+  Pycr.pyfunction def apply_func(func : Pycr::Callable, value : Int64) : Int64
+    result = func.call(value)
+    Pycr::Conversions.from_python(result, Int64)
+  end
+
+  Pycr.pyfunction def map_ints(func : Pycr::Callable, values : Array(Int32)) : Array(Int32)
+    values.map { |value| Pycr::Conversions.from_python(func.call(value), Int32) }
+  end
+
+  Pycr.pyfunction def call_two(func : Pycr::Callable, first : String, second : String) : String
+    result = func.call(first, second)
+    Pycr::Conversions.from_python(result, String)
+  end
+
+  Pycr.pyfunction def call_plain(func : Pycr::Callable) : Bool
+    result = func.call
+    Pycr::Conversions.from_python(result, Bool)
+  end
+
   # Block-style classes are registered by the same pyinit.
 
   Pycr.pyclass Counter, "pycr.Counter" do
