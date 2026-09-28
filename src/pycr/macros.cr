@@ -967,6 +967,10 @@ module Pycr
     {% end %}
 
     fun pyinit_{{ module_name.id }} = PyInit_{{ module_name.id }} : Py::Object
+      # Boehm registration FIRST: C API calls during module init can
+      # trigger deferred deallocations of our objects, and Boehm must
+      # know the importing thread before any of our dealloc code runs.
+      Pycr.ensure_thread_registered
       Pycr.bootstrap_module({{ module_name }}, {{ function_count }})
       {% method_index = 0 %}
       {% for node in nodes %}

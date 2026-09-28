@@ -22,12 +22,14 @@ during sleeps and IO), **no two threads execute Crystal code concurrently**.
 In free-threaded Python (`python3.13t` / `python3.14t`):
 1. **The GIL is removed**: Multiple Python threads enter `py_call` simultaneously
    across multiple CPU cores.
-2. **Crystal was compiled single-threaded**: `build.sh` does not pass
-   `-Dpreview_mt`. In single-threaded mode, Crystal's runtime, class variables,
-   and memory allocators assume only one thread runs Crystal code at any instant.
+2. **Crystal runtime is already multi-threaded**: In Crystal 1.21+, multi-threading
+   and the parallel execution context (`Fiber::ExecutionContext::Parallel`) are now
+   the **default**. The compiler emits thread-safe allocations, atomic reference
+   operations, and links multi-threaded Boehm GC. However, Crystal's standard
+   collections (`Hash`, `Set`) are not thread-safe by design.
 3. **Internal state is unguarded**: The pin registry (`Set(Void*)`), iterator
-   states, eternal strings, and method caches are raw, unsynchronized Crystal
-   data structures. Concurrent mutations will corrupt them.
+   states, eternal strings, and method caches are raw Crystal data structures.
+   Previously guarded by CPython's GIL, concurrent mutations will now corrupt them.
 4. **`safe_collect` assumption is violated**: `safe_collect` currently assumes
    no other thread is mid-call. Under free-threading, one thread may trigger a
    collection while other threads are in the middle of Crystal methods or
@@ -40,12 +42,13 @@ In free-threaded Python (`python3.13t` / `python3.14t`):
 
 ## 2. Technical Vulnerability Inventory
 
-### 2.1. Compilation Mode (`-Dpreview_mt`)
-- **Current**: Plain `crystal build --cross-compile ...` without `-Dpreview_mt`.
-- **Impact**: Crystal emits non-atomic reference counting, non-thread-safe memory
-  allocator paths, and single-threaded runtime assumptions.
-- **Fix**: Must either compile with `-Dpreview_mt` or serialize execution at the
-  boundary.
+### 2.1. Crystal Runtime Threading Status (Advantage)
+- **Status**: In Crystal 1.21+, multi-threading is default (replacing the old
+  `-Dpreview_mt` flag). Crystal's memory allocator, fiber scheduler, and runtime
+  internals are already thread-safe.
+- **Implication**: We do **not** have to fight the compiler or runtime to get
+  thread-safe code generation. The work is strictly focused on synchronizing
+  `py-cr`'s own data structures and coordinating with CPython's C-API.
 
 ### 2.2. Global Registries (`registry`, `iterator_states`, `kwlists`, `eternal_strings`)
 - **Current**:
@@ -168,16 +171,15 @@ scales across cores; Crystal execution is serialized and safely protected.
 
 ---
 
-### Phase 3: Native Multithreading (`-Dpreview_mt`)
+### Phase 3: Full Parallel Execution (Unlocking Concurrent Multi-Core Compute)
 
-**Goal**: True parallel, multi-core Crystal compute directly from Python threads.
+**Goal**: True parallel, multi-core Crystal compute directly from Python threads without the Phase 1 boundary lock.
 
-1. **Toolchain Compilation**:
-   Compile with `-Dpreview_mt` in `build.sh`:
-   ```bash
-   crystal build --cross-compile -Dpreview_mt --no-debug -o "$BUILD/pycr" src/demo.cr
-   ```
-2. **Multi-Thread Boehm GC**:
+Since Crystal 1.21+ already compiles with multi-threading and the `Parallel` execution context by default, the runtime foundation is already in place. Unlocking full parallelism requires:
+
+1. **Retire the Boundary Mutex**:
+   Once registries (Phase 2) are synchronized, remove the boundary mutex from `py_call`, allowing concurrent execution across CPU cores.
+2. **Multi-Thread Boehm GC Verification**:
    - Verify `libgc.so.1` is compiled with multi-thread support (`-DGC_THREADS`).
    - Every entering thread registers via `GC_register_my_thread`.
    - Maintain serialized collection via `safe_collect` so collections occur only
