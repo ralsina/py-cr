@@ -1,0 +1,5 @@
+# Lint/AssignmentInCallArgument misfires on this project's DSL: pymethod
+# and pynew take a def as their call argument, so assignments inside the
+# def body are lexically "assignments in a call argument".
+Lint/AssignmentInCallArgument:
+  Enabled: false

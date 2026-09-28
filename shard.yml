@@ -1,0 +1,16 @@
+name: py-cr
+version: 0.1.0
+
+authors:
+  - Roberto Alsina <roberto.alsina@gmail.com>
+
+description: |
+  Write Python extension modules in Crystal.
+
+# There is no shards build target: the extension is a shared object and
+# needs the objcopy workaround in build.sh, plain crystal build -shared
+# does not work (see build.sh and README.md).
+
+crystal: ">= 1.20.0"
+
+license: MIT

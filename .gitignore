@@ -1,0 +1,6 @@
+/.crystal/
+/bin/
+/lib/
+*.so
+*.o
+__pycache__/
