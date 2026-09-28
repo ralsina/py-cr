@@ -199,6 +199,32 @@ resolves them (as C extensions do on Linux).
 
 The demo module is importable as `pycr` from the repo root.
 
+## Example: `examples/tartrazine`
+
+The tartrazine syntax highlighter wrapped as `import tartrazine` —
+2.2 MB release binary, ~4 ms import, 388 themes, a `Lexer` class plus
+`highlight()`/`tokenize()`/`themes()` functions.
+
+Build and benchmark it:
+
+    cd examples/tartrazine
+    ./build.sh              # NOTE: builds with --release; required for the documented performance
+    python3 test_tartrazine.py
+    python3 bench.py        # timeit-based; compares against pygments if installed
+
+Release-build performance (timeit best-of-5, per call, real stdlib
+inputs; pygments 2.18.x for comparison):
+
+| input | lines | tartrazine | pygments | speedup |
+|---|---|---|---|---|
+| small | 20 | 0.124 ms | 0.283 ms | 2.3x |
+| medium | 300 | 0.827 ms | 9.148 ms | 11.1x |
+| dataclasses | 1813 | 4.971 ms | 56.336 ms | 11.3x |
+| large | 5689 | 16.996 ms | 205.301 ms | 12.1x |
+
+Debug builds are roughly 5x slower — always ship extension modules
+with `--release`.
+
 ## Roadmap
 
 1. `PyRef` as the general storable reference everywhere (works for

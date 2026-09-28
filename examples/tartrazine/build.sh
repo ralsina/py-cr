@@ -9,7 +9,7 @@ cd "$(dirname "$0")"
 BUILD=$(mktemp -d)
 trap 'rm -rf "$BUILD"' EXIT
 
-if ! crystal build --emit obj --no-debug -o "$BUILD/tt.o" src/tartrazine_py.cr 2>"$BUILD/compile.log"; then
+if ! crystal build --release --emit obj --no-debug -o "$BUILD/tt.o" src/tartrazine_py.cr 2>"$BUILD/compile.log"; then
   if [ ! -f "$BUILD/tt.o" ]; then
     cat "$BUILD/compile.log" >&2
     exit 1
