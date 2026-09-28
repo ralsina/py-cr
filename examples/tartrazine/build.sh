@@ -5,6 +5,7 @@
 
 set -e
 cd "$(dirname "$0")"
+shards install
 
 BUILD=$(mktemp -d)
 trap 'rm -rf "$BUILD"' EXIT
