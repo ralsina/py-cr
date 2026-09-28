@@ -9,7 +9,7 @@ cd "$(dirname "$0")"
 BUILD=$(mktemp -d)
 trap 'rm -rf "$BUILD"' EXIT
 
-crystal build --release --cross-compile --emit obj --no-debug -o "$BUILD/tt" src/tartrazine_py.cr
+crystal build --release --cross-compile --no-debug -o "$BUILD/tt" src/tartrazine_py.cr
 
 objcopy --wildcard --localize-symbol='*@*' "$BUILD/tt.o" "$BUILD/tt_loc.o"
 
