@@ -335,6 +335,32 @@ Pycr.pyinit "pycr" do
     Pycr.release_gil { sleep seconds }
   end
 
+  # Scheduler bridge: scheduler-requiring work from any thread. The
+  # block runs on the bridge context (no GIL, no Python access inside).
+  # NOTE: `spawn` inside Bridge.run blocks is not supported - it routes
+  # through execution-context machinery that can deadlock under
+  # embedding (see notes/scheduler-spike.md). Use blocking IO.
+  Pycr.pyfunction def bridge_sleep(seconds : Float64) : String
+    message = Pycr::Bridge.run do
+      sleep seconds
+      "slept #{seconds}s on the bridge"
+    end
+    message
+  end
+
+  Pycr.pyfunction def bridge_nano(seconds : Float64) : String
+    Pycr::Bridge.run do
+      Pycr.sleep_seconds seconds
+      "nano-slept"
+    end
+  end
+
+  Pycr.pyfunction def bridge_raise : Nil
+    Pycr::Bridge.run do
+      raise ArgumentError.new("raised on the bridge")
+    end
+  end
+
   # Block-style classes are registered by the same pyinit.
 
   Pycr.pyclass Counter, "pycr.Counter" do

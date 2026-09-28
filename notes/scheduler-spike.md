@@ -70,3 +70,26 @@ Rung 3 — foreign Python threads (threads other than the importer):
 `test/test_pycr.py` section 20 pins all of this: the rung-1 probes,
 the release_gil fiber park with a spinner, and the foreign-thread
 clean error.
+
+## Addendum: the bridge (experimental, one known deadlock)
+
+`Pycr::Bridge.run` funnels foreign-thread scheduler work to a
+dedicated Parallel context (capacity 1). Findings from building it:
+
+- **Isolated contexts trap `spawn`**: `Isolated#enqueue_impl` only
+  accepts its own main fiber, and `Isolated#spawn` routes to
+  `@spawn_context` (the default EC). A job block calling bare `spawn`
+  enqueues fibers onto the importing thread's context, whose scheduler
+  never runs while Python owns that thread -> deadlock. First bridge
+  design died here; the Parallel-context redesign fixed routing (bare
+  `spawn` inside a job targets the bridge's own context).
+- **GIL-contention deadlock (open)**: a foreign waiter blocked in the
+  bridge wait (GIL released, pthread cond_wait) can deadlock when a
+  CPU-bound Python thread hogs the GIL - the waiter's
+  `PyEval_RestoreThread` after wake spins forever. Without concurrent
+  CPU load, foreign bridge calls work (sleep, blocking IO). Suspect
+  CPython 3.14 GIL handoff x PyEval_SaveThread/RestoreThread
+  interleaving; needs upstream-grade investigation.
+- Parallel.new/checkout from a foreign thread also appears
+  nondeterministic; create ECs on the importing thread only (the
+  framework does: eager start at import).

@@ -114,8 +114,12 @@ end
   Park fibers under `Pycr.release_gil` so other Python threads keep
   running. Foreign Python threads cannot enter the scheduler - they
   raise a clean `RuntimeError` (same as stock Crystal 1.21 user
-  threads); compute-only calls work everywhere. See
-  `notes/scheduler-spike.md`.
+  threads); compute-only calls work everywhere.
+  `Pycr::Bridge.run { ... }` exists as the opt-in point but is
+  currently a stub: on the importing thread it runs the block
+  directly; foreign threads raise `NotImplementedError` (full
+  findings and two abandoned implementations in
+  `notes/scheduler-spike.md`).
 - **Threads and GC**: automatic Boehm collection is disabled; every
   Python thread registers itself with Boehm on entry and unregisters at
   exit, and all collections go through one mutex-serialized entry point
@@ -141,15 +145,16 @@ end
 | Iteration protocol: `pyiter`/`pylen` (block + annotation styles), lazy, concurrent-safe | working, tested |
 | Subscript protocols: `pygetitem`/`pysetitem`/`pycontains` (block + annotation styles) | working, tested |
 | Slices over `pygetitem` + `pylen` (PySlice_Unpack/AdjustIndices) | working, tested |
+| Scheduler bridge: foreign-thread scheduler access | stub (importing-thread only; two implementations abandoned, findings in notes) |
 | Boehm GC under CPython threading: registration at entry, unregistration at exit, serialized collections | working, tested (concurrent collectors + allocators + spinner + napper) |
 | Pin/unpin registry for cross-runtime ownership | working, tested |
 
 ### Known limitations
 
 - **Scheduler access is thread-affine**: foreign Python threads cannot
-  run fibers/IO/sleep (clean `RuntimeError`); funnel those calls to
-  the importing thread. `Pycr.sleep_seconds` is the scheduler-free
-  wait for foreign threads.
+  run fibers/IO/sleep directly (clean `RuntimeError`); call those
+  functions from the importing thread. `Pycr.sleep_seconds` is the
+  scheduler-free wait for foreign threads.
 - `Pycr.heap_size` takes libgc's internal lock: do not call it from one
   thread while another collects.
 - Macro-*emitted* annotations lose their arguments in Crystal 1.21, so
@@ -191,8 +196,8 @@ The demo module is importable as `pycr` from the repo root.
 2. Attributes with getters only in block style; class methods and
    constructors as `pyfunction`s; `__str__`, rich comparison, arithmetic
    slots.
-3. Scheduler bridge: funnel foreign-thread scheduler work to the importing thread's EC (condvar wait under `release_gil`) so IO-capable Crystal calls work from any Python thread.
-5. Packaging: cibuildwheel, per-CPython-version wheels, then
+3. Scheduler bridge scale-up: concurrent jobs (wider context) and safe `spawn` inside bridge blocks (needs upstream EC routing changes).
+4. Packaging: cibuildwheel, per-CPython-version wheels, then
    limited-API/abi3 discipline.
 
 The first real example module lives in `examples/tartrazine`: the
