@@ -70,10 +70,10 @@ end
 ## What the boundary does
 
 - **Conversions**: `String`, `Bool`, `Int32`, `Int64`, `Float64`,
-  `Nil` (`None`), `Array(T)` in and out, `Hash(K, V)` in and out,
-  `Tuple` out, `Pycr::Callable` (any Python callable, invocable from
-  Crystal; callback exceptions propagate as themselves), and raw
-  `Py::Object` as an escape hatch. Argument types
+  `Nil` (`None`), `Bytes` in and out, `Array(T)` in and out,
+  `Hash(K, V)` in and out, `Tuple` out, `Pycr::Callable` (any Python
+  callable, invocable from Crystal; callback exceptions propagate as
+  themselves), and raw `Py::Object` as an escape hatch. Argument types
   come from the Crystal signatures; wrong types raise Python
   `TypeError`s.
 - **Keyword arguments**: every declared argument of a pyfunction,
@@ -83,6 +83,9 @@ end
   `TypeCastError`→`TypeError`, `KeyError`→`KeyError`,
   `DivisionByZeroError`→`ZeroDivisionError`, unmapped→`RuntimeError` —
   and C-API failures pass Python's own error through untouched.
+- **Strings and reprs**: `str()` on any exposed class calls its
+  Crystal `to_s` (override `to_s` to customize); `repr()` comes from
+  `pyrepr`/`@[Pycr::PyRepr]`.
 - **Ownership**: Python-side instances hold a pinned pointer to the
   Crystal object; the pin registry (the only thing Boehm can see)
   keeps it alive, and `tp_dealloc` unpins. NUL-terminated strings that
@@ -148,7 +151,7 @@ The demo module is importable as `pycr` from the repo root.
 2. Attributes with getters only in block style; class methods and
    constructors as `pyfunction`s; `__str__`, rich comparison, arithmetic
    slots.
-3. Buffers/bytes conversions; `NamedTuple`.
+3. `NamedTuple`; owned (storable) callable references.
 4. Packaging: cibuildwheel, per-CPython-version wheels, then
    limited-API/abi3 discipline.
 

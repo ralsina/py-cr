@@ -122,6 +122,8 @@ lib Py
   fun PyDict_Next(dict : Object, position : Int64*, key : Object*, value : Object*) : Int32
   fun PyCapsule_New(pointer : Void*, name : UInt8*, destructor : (Object) -> Void) : Object
   fun PyCapsule_GetPointer(capsule : Object, name : UInt8*) : Void*
+  fun PyBytes_FromStringAndSize(string : UInt8*, size : Int64) : Object
+  fun PyBytes_AsStringAndSize(obj : Object, buffer : UInt8**, size : Int64*) : Int32
   fun PyCallable_Check(obj : Object) : Int32
   fun PyObject_Call(callable : Object, args : Object, kwargs : Object) : Object
   fun PyType_FromSpec(spec : TypeSpec*) : Object
@@ -154,6 +156,7 @@ PY_TP_DEALLOC = 52
 PY_TP_METHODS = 64
 PY_TP_NEW     = 65
 PY_TP_REPR    = 66
+PY_TP_STR     = 70
 PY_TP_GETSET  = 73
 
 # object.h: HAVE_STACKLESS_EXTENSION is 0 on stock builds, so DEFAULT is 0.
@@ -327,8 +330,12 @@ module Pycr
   # Mutex routes contended locks through Thread.current, which crashes
   # on foreign threads) — from points where the caller holds the GIL.
 
-  # Collect once this much allocation has gone through the boundary.
+  # Collect once this much allocation has gone through the boundary,
+  # or once the real heap has grown this much since the last check.
   COLLECTION_DEBT_BYTES = 64 * 1024 * 1024
+
+  # Sample the real heap size every N boundary calls.
+  COLLECTION_CHECK_INTERVAL = 32
 
   # A zeroed pthread_mutex_t is PTHREAD_MUTEX_INITIALIZER on glibc, and
   # GC.malloc returns zeroed memory; the class var roots the allocation.
@@ -357,6 +364,8 @@ module Pycr
     @@safe_collect_depth.get != 0
   end
 
+  @@boundary_calls = Atomic(Int64).new(0)
+  @@heap_at_collect = Atomic(Int64).new(-1)
   @@debt_bytes = Atomic(Int64).new(0)
 
   # Current Boehm heap size in bytes. NOT safe to call from one thread
@@ -365,9 +374,27 @@ module Pycr
     LibGC.get_heap_size.to_i64
   end
 
-  # Accounts for Crystal-side allocation and collects when the debt
-  # crosses the threshold. Called from allocation points on the
-  # boundary (cstr, conversions), always with the GIL held.
+  # Called at every boundary entry: every COLLECTION_CHECK_INTERVAL
+  # calls, samples the real heap size and collects on 64MB of growth.
+  # The allocation-debt counter alone is blind to allocation inside
+  # Crystal bodies (the majority), which the soak test caught as
+  # unbounded growth. Atomics, not plain class vars: several Python
+  # threads reach this at once, and a skewed count only shifts when a
+  # check happens.
+  def self.note_boundary_call : Nil
+    return if safe_collect_disabled
+    calls = @@boundary_calls.add(1)
+    return unless calls % COLLECTION_CHECK_INTERVAL == 0
+    baseline = @@heap_at_collect.get
+    return unless baseline >= 0
+    return unless heap_size - baseline > COLLECTION_DEBT_BYTES
+    safe_collect
+    @@heap_at_collect.set(heap_size)
+  end
+
+  # Accounts for Crystal-side boundary allocation and collects when
+  # the debt crosses the threshold; complements the heap sampling for
+  # conversion-heavy workloads that allocate in small pieces.
   def self.note_allocation(bytes : Int) : Nil
     return if safe_collect_disabled
     debt = @@debt_bytes.add(bytes.to_i64)
@@ -391,6 +418,7 @@ module Pycr
   # notes/crystal-1.21-no-return-proc-bug.cr.
   def self.py_call(&) : Py::Object
     ensure_thread_registered
+    note_boundary_call
     yield
   rescue PythonError
     Pointer(Void).null.as(Py::Object)
@@ -404,6 +432,7 @@ module Pycr
   # setters and other int-returning C slots).
   def self.py_call_int(&) : Int32
     ensure_thread_registered
+    note_boundary_call
     yield
   rescue PythonError
     -1
@@ -503,6 +532,7 @@ module Pycr
     # Collections happen only where the framework chooses (see the
     # collection policy above).
     LibGC.disable
+    @@heap_at_collect.set(heap_size)
     definition = module_definition
     Slice.new(definition, 1).fill(Py::ModuleDef.new)
     definition.value.ob_refcnt = 1

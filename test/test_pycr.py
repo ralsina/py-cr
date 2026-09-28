@@ -332,6 +332,43 @@ def main() -> None:
     assert pycr.apply_func(lambda x: pycr.add(x, 1), 41) == 42
     print("callback exceptions propagate; re-entrant callbacks work")
 
+    # 17. Bytes in and out; str() wired to to_s
+    assert pycr.hexdigest(b"hello") == b"hello".hex()
+    assert pycr.repeat_bytes(b"ab", 3) == b"ababab"
+    expect_type_error(lambda: pycr.hexdigest("not-bytes"), "hexdigest with str")
+    print("bytes round-trip; non-bytes raise TypeError")
+
+    counter = pycr.Counter(3)
+    assert "Counter" in str(counter) and "count=3" in repr(counter)
+    del counter
+    print("str() is wired to to_s (Crystal default; override to_s to customize)")
+
+    # 18. Memory soak: bounded RSS growth over a heavy mixed workload
+    def rss_mb():
+        with open("/proc/self/status") as status:
+            for line in status:
+                if line.startswith("VmRSS:"):
+                    return int(line.split()[1]) / 1024.0
+
+    gc.collect()
+    pycr.gc()
+    start_rss = rss_mb()
+    for round_number in range(300):
+        pycr.churn(2)
+        pycr.echo(f"soak {round_number}")
+        soak_counter = pycr.Counter(round_number)
+        soak_counter.increment()
+        del soak_counter
+        capsule = pycr.box("soak")
+        pycr.unbox(capsule)
+        del capsule
+    pycr.gc()
+    gc.collect()
+    growth = rss_mb() - start_rss
+    assert growth < 150, f"RSS grew by {growth:.0f} MB"
+    assert pycr.pinned_count() == 0
+    print(f"soak: 300 rounds, RSS growth {growth:.0f} MB, no leaked pins")
+
     # everything still works after all that churn
     assert pycr.hello() == "Hello from Crystal!"
     print("still healthy after stress + pin/unpin + threads")

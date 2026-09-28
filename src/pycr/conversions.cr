@@ -33,6 +33,10 @@ module Pycr
       Py.Py_BuildValue(Pycr.cstr(""))
     end
 
+    def self.to_python(value : Bytes) : Py::Object
+      Py.PyBytes_FromStringAndSize(value.to_unsafe, value.size)
+    end
+
     # Escape hatch: a raw CPython object passes through unchanged. The
     # value must be an owned reference going in (to_python gives it
     # away) and borrowed coming out (from_python).
@@ -87,6 +91,19 @@ module Pycr
     # Escape hatch: see to_python(Py::Object).
     def self.from_python(obj : Py::Object, type : Py::Object.class) : Py::Object
       obj
+    end
+
+    def self.from_python(obj : Py::Object, type : Bytes.class) : Bytes
+      buffer = Pointer(UInt8).null
+      size = 0_i64
+      if Py.PyBytes_AsStringAndSize(obj, pointerof(buffer), pointerof(size)) != 0
+        # AsStringAndSize set TypeError for non-bytes already.
+        raise PythonError.new("expected bytes")
+      end
+      # buffer is owned by obj; copy so the result outlives the call.
+      copy = Bytes.new(size)
+      copy.copy_from(Bytes.new(buffer, size))
+      copy
     end
 
     def self.from_python(obj : Py::Object, type : Callable.class) : Callable

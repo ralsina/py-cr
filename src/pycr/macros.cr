@@ -209,6 +209,15 @@ module Pycr
         {% end %}
       {% end %}
 
+      # str() is always wired to to_s: Object#to_s gives the class
+      # name by default, better than CPython's <module.Type at 0x...>.
+      def self.__py_str(instance : Py::Object) : Py::Object
+        Pycr.py_call do
+          pycr_receiver = Pycr.instance_data(instance).as({{ klass.id }})
+          Pycr::Conversions.to_python(pycr_receiver.to_s)
+        end
+      end
+
       def self.__py_register(module_object : Py::Object) : Nil
         Pycr::Classes.register_class(
           module_object,
@@ -234,6 +243,7 @@ module Pycr
           {% else %}
             nil,
           {% end %}
+          ->__py_str(Py::Object),
           {% if has_attrs %}
             [
               {% for node in nodes %}
@@ -436,6 +446,13 @@ module Pycr
               {% end %}
             {% end %}
 
+            def self.__py_str(instance : Py::Object) : Py::Object
+              Pycr.py_call do
+                pycr_receiver = Pycr.instance_data(instance).as({{ klass.id }})
+                Pycr::Conversions.to_python(pycr_receiver.to_s)
+              end
+            end
+
             def self.__py_register(module_object : Py::Object) : Nil
               Pycr::Classes.register_class(
                 module_object,
@@ -454,6 +471,7 @@ module Pycr
                 {% else %}
                   nil,
                 {% end %}
+                ->__py_str(Py::Object),
                 {% if has_attrs %}
                   [
                     {% for method in klass.methods %}

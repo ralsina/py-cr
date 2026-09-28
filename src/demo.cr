@@ -186,6 +186,17 @@ Pycr.pyinit "pycr" do
     Pycr::Conversions.from_python(result, Bool)
   end
 
+  # Bytes in and out.
+  Pycr.pyfunction def hexdigest(data : Bytes) : String
+    data.hexstring
+  end
+
+  Pycr.pyfunction def repeat_bytes(data : Bytes, times : Int32) : Bytes
+    result = Bytes.new(data.size * times)
+    result.each_index { |index| result[index] = data[index % data.size] }
+    result
+  end
+
   # Block-style classes are registered by the same pyinit.
 
   Pycr.pyclass Counter, "pycr.Counter" do

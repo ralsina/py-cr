@@ -33,6 +33,7 @@ module Pycr
                             tp_new : (Py::Object, Py::Object, Py::Object) -> Py::Object,
                             tp_dealloc : (Py::Object) -> Nil,
                             tp_repr : ((Py::Object) -> Py::Object)?,
+                            tp_str : (Py::Object) -> Py::Object,
                             getsets : Array(GetSetEntry)) : Nil
       method_count = methods.size + 1 # plus the all-zero sentinel
       method_table = Pointer(Py::MethodDef).malloc(method_count)
@@ -57,8 +58,8 @@ module Pycr
       end
 
       # Slots: new, dealloc, methods, then optionally getset and repr,
-      # then the all-zero sentinel entry.
-      slots = Pointer(Py::TypeSlot).malloc(7)
+      # then str, then the all-zero sentinel entry.
+      slots = Pointer(Py::TypeSlot).malloc(8)
       store_tp_new(slots, 0, PY_TP_NEW, tp_new)
       store_tp_dealloc(slots, 1, PY_TP_DEALLOC, tp_dealloc)
       store_tp_data(slots, 2, PY_TP_METHODS, method_table.as(Void*))
@@ -69,7 +70,9 @@ module Pycr
       end
       unless tp_repr.nil?
         store_tp_unary(slots, next_slot, PY_TP_REPR, tp_repr)
+        next_slot += 1
       end
+      store_tp_unary(slots, next_slot, PY_TP_STR, tp_str)
 
       spec = Pointer(Py::TypeSpec).malloc(1)
       spec.value.name = Pycr.cstr(python_name)
