@@ -1,6 +1,6 @@
 /.crystal/
 /bin/
-/lib/
+lib/
 *.so
 *.o
 __pycache__/

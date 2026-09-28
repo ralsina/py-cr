@@ -158,6 +158,11 @@ PY_TPFLAGS_DEFAULT = 0_u32
 
 CAPSULE_NAME = "pycr.pinned_string"
 
+lib LibCrystalMain
+  @[Raises]
+  fun __crystal_main(argc : Int32, argv : UInt8**)
+end
+
 # Boehm cannot see threads CPython created before our .so was dlopened
 # (libgc's pthread interception only catches threads created after the
 # library is loaded), so an unregistered Python thread that allocates
@@ -473,6 +478,25 @@ module Pycr
   # Called by the PyInit fun the pyinit macro generates: resets the
   # module definition and allocates a fresh method table.
   def self.bootstrap_module(name : String, function_count : Int32) : Nil
+    # The blessed runtime bootstrap (GC, Thread, Fiber, Once class
+    # vars) that C's main runs in normal programs but library mode
+    # never does; without it, Thread.current and __crystal_once crash
+    # on any thread. PyInit is single-threaded, before any thunk runs.
+    Crystal.init_runtime
+    # Constants with runtime initializers (Regex literals, baked file
+    # systems, ...) are initialized eagerly by the compiler-generated
+    # __crystal_main, not lazily through __crystal_once: without this
+    # call their slots stay null and first use segfaults. Top-level
+    # statements run too, which is what a normal program does anyway.
+    begin
+      argv = Pointer(Pointer(UInt8)).malloc(2)
+      argv[0] = cstr(name)
+      argv[1] = Pointer(UInt8).null
+      LibCrystalMain.__crystal_main(1, argv)
+    rescue exception : Exception
+      message = cstr("pycr: program initializers failed: #{exception.class.name}: #{exception.message || "no message"}\n")
+      LibC.write(2, message, LibC.strlen(message))
+    end
     # Collections happen only where the framework chooses (see the
     # collection policy above).
     LibGC.disable

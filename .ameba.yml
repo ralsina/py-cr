@@ -3,3 +3,6 @@
 # def body are lexically "assignments in a call argument".
 Lint/AssignmentInCallArgument:
   Enabled: false
+
+# Dependency sources under examples/*/lib must not be linted; run as
+# `ameba src` from the root, or ameba will also inspect them.

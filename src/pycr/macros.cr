@@ -102,7 +102,7 @@ module Pycr
             Pycr.py_call do
               {% format_string = "" %}
               {% for arg in init_def.args %}
-                {% if arg.default_value && !format_string.includes?("|") %}
+                {% if !arg.default_value.nil? && !format_string.includes?("|") %}
                   {% format_string = format_string + "|" %}
                 {% end %}
                 {% format_string = format_string + "O" %}
@@ -118,7 +118,7 @@ module Pycr
                   next Pointer(Void).null.as(Py::Object)
                 end
                 {% for arg in init_def.args %}
-                  {% if arg.default_value %}
+                  {% if !arg.default_value.nil? %}
                     {{ arg.name }} = py_arg_{{ arg.name }}.null? ? ({{ arg.default_value }}).as({{ arg.restriction }}) : Pycr::Conversions.from_python(py_arg_{{ arg.name }}, {{ arg.restriction }})
                   {% else %}
                     {{ arg.name }} = Pycr::Conversions.from_python(py_arg_{{ arg.name }}, {{ arg.restriction }})
@@ -143,7 +143,7 @@ module Pycr
               pycr_receiver = Pycr.instance_data(self_object).as({{ klass.id }})
               {% format_string = "" %}
               {% for arg in method_def.args %}
-                {% if arg.default_value && !format_string.includes?("|") %}
+                {% if !arg.default_value.nil? && !format_string.includes?("|") %}
                   {% format_string = format_string + "|" %}
                 {% end %}
                 {% format_string = format_string + "O" %}
@@ -159,7 +159,7 @@ module Pycr
                   next Pointer(Void).null.as(Py::Object)
                 end
                 {% for arg in method_def.args %}
-                  {% if arg.default_value %}
+                  {% if !arg.default_value.nil? %}
                     {{ arg.name }} = py_arg_{{ arg.name }}.null? ? ({{ arg.default_value }}).as({{ arg.restriction }}) : Pycr::Conversions.from_python(py_arg_{{ arg.name }}, {{ arg.restriction }})
                   {% else %}
                     {{ arg.name }} = Pycr::Conversions.from_python(py_arg_{{ arg.name }}, {{ arg.restriction }})
@@ -275,7 +275,7 @@ module Pycr
           Pycr.py_call do
             {% format_string = "" %}
             {% for arg in fun_def.args %}
-              {% if arg.default_value && !format_string.includes?("|") %}
+              {% if !arg.default_value.nil? && !format_string.includes?("|") %}
                 {% format_string = format_string + "|" %}
               {% end %}
               {% format_string = format_string + "O" %}
@@ -291,7 +291,7 @@ module Pycr
                 next Pointer(Void).null.as(Py::Object)
               end
               {% for arg in fun_def.args %}
-                {% if arg.default_value %}
+                {% if !arg.default_value.nil? %}
                   {{ arg.name }} = py_arg_{{ arg.name }}.null? ? ({{ arg.default_value }}).as({{ arg.restriction }}) : Pycr::Conversions.from_python(py_arg_{{ arg.name }}, {{ arg.restriction }})
                 {% else %}
                   {{ arg.name }} = Pycr::Conversions.from_python(py_arg_{{ arg.name }}, {{ arg.restriction }})
@@ -332,7 +332,7 @@ module Pycr
               Pycr.py_call do
                 {% format_string = "" %}
                 {% for arg in init_def.args %}
-                  {% if arg.default_value && !format_string.includes?("|") %}
+                  {% if !arg.default_value.nil? && !format_string.includes?("|") %}
                     {% format_string = format_string + "|" %}
                   {% end %}
                   {% format_string = format_string + "O" %}
@@ -348,7 +348,7 @@ module Pycr
                     next Pointer(Void).null.as(Py::Object)
                   end
                   {% for arg in init_def.args %}
-                    {% if arg.default_value %}
+                    {% if !arg.default_value.nil? %}
                       {{ arg.name }} = py_arg_{{ arg.name }}.null? ? ({{ arg.default_value }}).as({{ arg.restriction }}) : Pycr::Conversions.from_python(py_arg_{{ arg.name }}, {{ arg.restriction }})
                     {% else %}
                       {{ arg.name }} = Pycr::Conversions.from_python(py_arg_{{ arg.name }}, {{ arg.restriction }})
@@ -366,7 +366,7 @@ module Pycr
                     pycr_receiver = Pycr.instance_data(self_object).as({{ klass.id }})
                     {% format_string = "" %}
                     {% for arg in method.args %}
-                      {% if arg.default_value && !format_string.includes?("|") %}
+                      {% if !arg.default_value.nil? && !format_string.includes?("|") %}
                         {% format_string = format_string + "|" %}
                       {% end %}
                       {% format_string = format_string + "O" %}
@@ -382,7 +382,7 @@ module Pycr
                         next Pointer(Void).null.as(Py::Object)
                       end
                       {% for arg in method.args %}
-                        {% if arg.default_value %}
+                        {% if !arg.default_value.nil? %}
                           {{ arg.name }} = py_arg_{{ arg.name }}.null? ? ({{ arg.default_value }}).as({{ arg.restriction }}) : Pycr::Conversions.from_python(py_arg_{{ arg.name }}, {{ arg.restriction }})
                         {% else %}
                           {{ arg.name }} = Pycr::Conversions.from_python(py_arg_{{ arg.name }}, {{ arg.restriction }})

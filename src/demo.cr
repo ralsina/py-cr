@@ -160,6 +160,11 @@ Pycr.pyinit "pycr" do
   Pycr.pyfunction def nothing : Nil
   end
 
+  # Three trailing optionals, mirroring the example module's highlight()
+  Pycr.pyfunction def echo3(text : String, flag : Bool = false, other : Bool = false, third : Bool = false) : String
+    "#{text}|#{flag}|#{other}|#{third}"
+  end
+
   # Block-style classes are registered by the same pyinit.
 
   Pycr.pyclass Counter, "pycr.Counter" do

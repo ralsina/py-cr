@@ -1,0 +1,34 @@
+version: 2.0
+shards:
+  baked_file_system:
+    git: https://github.com/ralsina/baked_file_system.git
+    version: 0.11.1
+
+  base58:
+    git: https://github.com/crystal-china/base58.cr.git
+    version: 0.1.0+git.commit.0e2c44d16a8098b00d8bf0b74add8bb9ea2f1c5f
+
+  crimage:
+    git: https://github.com/naqvis/crimage.git
+    version: 1.0.5+git.commit.7d3244a3850646e3d398cef071f7c3e3f52c7518
+
+  docopt:
+    git: https://github.com/ralsina/docopt.cr.git
+    version: 1.5.0
+
+  hansa:
+    git: https://github.com/ralsina/hansa.git
+    version: 0.2.1
+
+  py-cr:
+    path: ../..
+    version: 0.1.0
+
+  sixteen:
+    git: https://github.com/ralsina/sixteen.git
+    version: 0.9.0
+
+  tartrazine:
+    git: https://github.com/ralsina/tartrazine.git
+    version: 0.27.0
+
