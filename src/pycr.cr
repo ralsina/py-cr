@@ -286,7 +286,8 @@ module Pycr
 
   def self.clear_managed_dict(instance : Py::Object) : Nil
     unless @@clear_managed_dict.null?
-      function = Proc(Py::Object, Void).new(@@clear_managed_dict, Pointer(Void).null)
+      # ameba:disable Lint/VoidOutsideLib
+      function = Proc(Py::Object, Nil).new(@@clear_managed_dict, Pointer(Void).null)
       function.call(instance)
     end
   end
@@ -361,7 +362,8 @@ module Pycr
       Pycr.unpin(Pycr.instance_data(instance))
       if gc_allocated
         unless Pycr.clear_weakrefs_ptr.null?
-          clear_weakrefs_fn = Proc(Py::Object, Void).new(Pycr.clear_weakrefs_ptr, Pointer(Void).null)
+          # ameba:disable Lint/VoidOutsideLib
+          clear_weakrefs_fn = Proc(Py::Object, Nil).new(Pycr.clear_weakrefs_ptr, Pointer(Void).null)
           clear_weakrefs_fn.call(instance)
         end
         Py.PyObject_GC_UnTrack(instance)
