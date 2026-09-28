@@ -21,6 +21,8 @@ import base64
 import hashlib
 import os
 import shutil
+import ctypes.util
+import subprocess
 import sys
 import sysconfig
 
@@ -64,6 +66,25 @@ def main() -> None:
         sys.exit("pycr.so not found - run ./build.sh first")
 
     libgc = next((p for p in LIBGC_CANDIDATES if os.path.exists(p)), None)
+    if libgc is None:
+        # CI runners and slim images lack the gc runtime package; fetch
+        # the shared library from the Crystal toolchain's own bundle.
+        crystal_lib = subprocess.run(
+            ["crystal", "env", "CRYSTAL_LIBRARY_PATH"], capture_output=True, text=True
+        ).stdout.strip()
+        search_dirs = []
+        for directory in crystal_lib.split(":"):
+            search_dirs.append(directory)
+            search_dirs.append(os.path.join(directory, "gc"))
+        for directory in search_dirs:
+            candidate = os.path.join(directory, "libgc.so.1")
+            if os.path.exists(candidate):
+                libgc = candidate
+                break
+    if libgc is None:
+        found = ctypes.util.find_library("gc")
+        if found:
+            libgc = found
     if libgc is None:
         sys.exit("libgc.so.1 not found - install the gc runtime package")
 
