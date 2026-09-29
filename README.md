@@ -12,7 +12,7 @@ is just one example module used as the framework's test surface.
 From the GitHub release (Linux x86_64):
 
 - CPython 3.11-3.14: `pip install <regular wheel URL from the release>`
-- Free-threaded CPython (3.13t/3.14t): `pip install <cp313t.cp314t wheel URL>`
+- Free-threaded CPython (3.13t/3.14t): `pip install <cp313.cp314-cp313t.cp314t wheel URL>`
 
 The wheels bundle their own Boehm GC; no system Crystal or libgc
 required.

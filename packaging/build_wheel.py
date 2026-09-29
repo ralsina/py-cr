@@ -36,11 +36,15 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 FLAVOR = os.environ.get("PYCR_FLAVOR", "regular")
 SO = os.path.join(ROOT, "pycr.so" if FLAVOR == "regular" else "pycr_ft.so")
 LIBGC_CANDIDATES = ["/usr/lib/libgc.so.1", "/usr/lib64/libgc.so.1"]
-# Versions the .so is validated against (see notes in README).
+# Versions the .so is validated against (see notes in README). Per the
+# wheel spec, the `t` free-threading marker belongs in the ABI tag only,
+# never in the python (implementation) tag.
 if FLAVOR == "ft":
-    PY_TAGS = ["cp313t", "cp314t"]
+    PY_TAGS = ["cp313", "cp314"]
+    ABI_TAGS = ["cp313t", "cp314t"]
 else:
     PY_TAGS = ["cp311", "cp312", "cp313", "cp314"]
+    ABI_TAGS = PY_TAGS
 PLATFORM = "linux_x86_64"
 
 WHEEL_TEMPLATE = """Wheel-Version: 1.0
@@ -122,7 +126,7 @@ def main() -> None:
     # pip matches the FILENAME tags for local installs, and the WHEEL
     # metadata's Tag lines for the full set.
     py_set = ".".join(PY_TAGS)
-    abi_set = ".".join(PY_TAGS)
+    abi_set = ".".join(ABI_TAGS)
     filename = f"{DIST_NAME.replace('-', '_')}-{VERSION}-{py_set}-{abi_set}-{PLATFORM}.whl"
 
     dist_dir = os.path.join(ROOT, "dist")
@@ -132,7 +136,7 @@ def main() -> None:
     init_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "pycr", "__init__.py")
     init_py = open(init_path).read()
 
-    tag_lines = "".join(f"Tag: cp{v[2:]}-cp{v[2:]}-{PLATFORM}\n" for v in PY_TAGS)
+    tag_lines = "".join(f"Tag: {py}-{abi}-{PLATFORM}\n" for py, abi in zip(PY_TAGS, ABI_TAGS))
     wheel_meta = WHEEL_TEMPLATE.format(version=VERSION, tag_lines=tag_lines)
     metadata = METADATA_TEMPLATE.format(version=VERSION)
 
@@ -157,7 +161,7 @@ def main() -> None:
 
     size_mb = os.path.getsize(out_path) / 1e6
     print(f"built {out_path} ({size_mb:.1f} MB)")
-    print(f"tags: {', '.join(f'cp{v[2:]}-cp{v[2:]}-{PLATFORM}' for v in PY_TAGS)}")
+    print(f"tags: {', '.join(f'{py}-{abi}-{PLATFORM}' for py, abi in zip(PY_TAGS, ABI_TAGS))}")
 
 
 if __name__ == "__main__":
