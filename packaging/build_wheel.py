@@ -31,10 +31,16 @@ VERSION = "0.1.0"
 # decoupling: the wheel is `py-crystal`, the module is `pycr`).
 DIST_NAME = "py-crystal"
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-SO = os.path.join(ROOT, "pycr.so")
+# Flavor: "regular" (default) or "ft" (free-threaded build, -Dpycr_ft,
+# built by `PYCR_FT=1 ./build.sh` as pycr_ft.so).
+FLAVOR = os.environ.get("PYCR_FLAVOR", "regular")
+SO = os.path.join(ROOT, "pycr.so" if FLAVOR == "regular" else "pycr_ft.so")
 LIBGC_CANDIDATES = ["/usr/lib/libgc.so.1", "/usr/lib64/libgc.so.1"]
 # Versions the .so is validated against (see notes in README).
-PY_TAGS = ["cp311", "cp312", "cp313", "cp314"]
+if FLAVOR == "ft":
+    PY_TAGS = ["cp313t", "cp314t"]
+else:
+    PY_TAGS = ["cp311", "cp312", "cp313", "cp314"]
 PLATFORM = "linux_x86_64"
 
 WHEEL_TEMPLATE = """Wheel-Version: 1.0
@@ -66,7 +72,7 @@ def main() -> None:
     import zipfile
 
     if not os.path.exists(SO):
-        sys.exit("pycr.so not found - run ./build.sh first")
+        sys.exit(f"{SO} not found - run ./build.sh (PYCR_FT=1 ./build.sh for the ft flavor) first")
 
     libgc = next((p for p in LIBGC_CANDIDATES if os.path.exists(p)), None)
     if libgc is None:
@@ -146,7 +152,8 @@ def main() -> None:
         # RECORD: hashes for everything except itself (empty hash)
         record_lines = [f"{name},{sha},{size}" for name, sha, size in records]
         record_lines.append(f"{DIST_NAME.replace('-', '_')}-{VERSION}.dist-info/RECORD,,")
-        zf.writestr(f"pycr-{VERSION}.dist-info/RECORD", "\n".join(record_lines).encode())
+        dist_info = f"{DIST_NAME.replace('-', '_')}-{VERSION}.dist-info"
+        zf.writestr(f"{dist_info}/RECORD", "\n".join(record_lines).encode())
 
     size_mb = os.path.getsize(out_path) / 1e6
     print(f"built {out_path} ({size_mb:.1f} MB)")

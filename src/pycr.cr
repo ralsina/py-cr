@@ -46,7 +46,10 @@ lib Py
   # reads garbage as the module name.
   struct ModuleDef
     ob_refcnt : Int64 # PyObject.ob_refcnt
-    ob_type : Void*   # PyObject.ob_type
+    {% if flag?(:pycr_ft) %}
+      ft_head : StaticArray(UInt8, 16) # FT per-interpreter refcount fields
+    {% end %}
+    ob_type : Void* # PyObject.ob_type
     m_init : Void* -> Object
     m_index : Int64
     m_copy : Object
@@ -209,6 +212,8 @@ PY_TP_STR           = 70
 PY_TP_GETSET        = 73
 PY_MP_LENGTH        =  4
 PY_TP_RICHCOMPARE   = 67
+PY_MOD_GIL          =  4
+PY_MOD_GIL_NOT_USED = Pointer(Void).new(1_u64)
 PY_TP_INIT          = 60
 PY_NB_ADD           =  7
 PY_NB_SUBTRACT      = 36
@@ -275,9 +280,20 @@ module Pycr
   # loss is a documented leak, not a crash).
   @@clear_managed_dict : Pointer(Void) = LibC.dlsym(Pointer(Void).null, "PyObject_ClearManagedDict")
   @@clear_weakrefs : Pointer(Void) = LibC.dlsym(Pointer(Void).null, "PyUnstable_Object_ClearWeakRefsNoCallbacks")
+  # Free-threaded builds only (3.13t+); null on regular builds.
+  @@set_gil : Pointer(Void) = LibC.dlsym(Pointer(Void).null, "PyUnstable_Module_SetGIL")
 
   def self.clear_weakrefs_ptr : Pointer(Void)
     @@clear_weakrefs
+  end
+
+  # Marks a freshly created module as safe without the GIL (free-threaded
+  # builds). Without this, CPython re-enables the GIL process-wide on
+  # first import of the module, which crashes our boundary.
+  def self.set_module_gil(module_object : Py::Object) : Nil
+    return if @@set_gil.null?
+    set_gil_fn = Proc(Py::Object, Pointer(Void), Nil).new(@@set_gil, Pointer(Void).null)
+    set_gil_fn.call(module_object, PY_MOD_GIL_NOT_USED)
   end
 
   def self.clear_managed_dict_ptr : Pointer(Void)
@@ -293,7 +309,7 @@ module Pycr
 
   # The type object of *obj* (Py_TYPE: ob_type at offset 8, stable).
   def self.py_type(obj : Py::Object) : Py::Object
-    obj.as(Pointer(Void*))[1].as(Py::Object)
+    obj.as(Pointer(Void*))[PY_OB_TYPE_OFFSET // 8].as(Py::Object)
   end
 
   # The Py_NotImplemented object pointer is the SYMBOL ADDRESS of
@@ -330,7 +346,16 @@ module Pycr
 
   # sizeof(PyObject): refcount + type pointer. Instance data (the pinned
   # Crystal pointer) lives right after it.
-  INSTANCE_DATA_OFFSET = 16
+  # Layout constants. The free-threaded CPython build (3.13t/3.14t,
+  # Py_GIL_DISABLED) has a 32-byte PyObject with ob_type at 24 - build
+  # with `-Dpycr_ft` for interpreters running without the GIL.
+  {% if flag?(:pycr_ft) %}
+    INSTANCE_DATA_OFFSET = 32
+    PY_OB_TYPE_OFFSET    = 24
+  {% else %}
+    INSTANCE_DATA_OFFSET = 16
+    PY_OB_TYPE_OFFSET    =  8
+  {% end %}
 
   # Raised when a CPython C-API call has failed and already set Python's
   # error indicator; py_call passes it through untouched so Python sees
@@ -669,7 +694,7 @@ module Pycr
     # PyObject layout is stable across supported versions: ob_type
     # sits at offset 8. PySlice_Type is the type object itself (not a
     # pointer to one), so the symbol's address is what ob_type holds.
-    return if key.as(Pointer(Void*))[1] != pointerof(Py.slice_type).as(Void*)
+    return if key.as(Pointer(Void*))[PY_OB_TYPE_OFFSET // 8] != pointerof(Py.slice_type).as(Void*)
     start = 0_i64
     stop = 0_i64
     step = 0_i64

@@ -986,6 +986,9 @@ module Pycr
       if module_object.null?
         Pointer(Void).null.as(Py::Object)
       else
+        # Free-threaded builds: declare GIL-free operation (no-op on
+        # GIL builds; keeps the GIL off on 3.13t/3.14t).
+        Pycr.set_module_gil(module_object)
         {% exposed_classes = Pycr::PyObject.all_subclasses %}
         {% unless exposed_classes.empty? && block_classes.empty? %}
           Pycr::Classes.bootstrap(module_object, [{% for klass in exposed_classes %}->{{ klass }}.__py_register(Py::Object), {% end %}{% for klass in block_classes %}->{{ klass }}.__py_register(Py::Object), {% end %}])

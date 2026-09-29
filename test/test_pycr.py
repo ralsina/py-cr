@@ -17,6 +17,18 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import pycr  # noqa: E402
 
 
+def wait_pins(target=0, rounds=100):
+    """Wait for pins to drain: under free-threaded CPython, deallocs
+    are deferred (QSBR), so pins drop asynchronously."""
+    for _ in range(rounds):
+        gc.collect()
+        pycr.gc()
+        if pycr.pinned_count() == target:
+            return True
+        time.sleep(0.005)
+    return pycr.pinned_count() == target
+
+
 def expect_type_error(call, label):
     try:
         call()
@@ -522,7 +534,7 @@ def main() -> None:
     del wc
     gc.collect()
     pycr.gc()
-    assert pycr.pinned_count() == 0
+    assert wait_pins(), f'pins: {pycr.pinned_count()}'
     print("iterators survive GC cycles mid-iteration, then clean up")
 
     # exhausted iterators keep raising StopIteration; the iterator
@@ -538,7 +550,7 @@ def main() -> None:
     del exhausted
     gc.collect()
     pycr.gc()
-    assert pycr.pinned_count() == 0
+    assert wait_pins(), f'pins: {pycr.pinned_count()}'
     print("empty iteration stops cleanly; iterator + kept-alive source clean up")
 
     # annotation style: PyIter + PyLen on Greeter's log
@@ -583,7 +595,7 @@ def main() -> None:
     del wc, g
     gc.collect()
     pycr.gc()
-    assert pycr.pinned_count() == 0
+    assert wait_pins(), f'pins: {pycr.pinned_count()}'
     print("subscripts: wc[i], wc[i]=, `in`, IndexError/TypeError/NotImplementedError, both styles")
 
     # 23. NamedTuple -> dict conversion; Callable keyword invocation

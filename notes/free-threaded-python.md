@@ -247,8 +247,12 @@ matches gdb rdi=-1; instance-data writes at +16 would land inside the
 FT PyObject head; and the py_dealloc -32 fault is FT preheader access
 on a mislaid pointer.
 
-**Consequence:** one .so cannot serve both regular and free-threaded
-3.14. Supporting 3.14t requires a separate build:
+**Consequence (RESOLVED):** one .so cannot serve both regular and
+free-threaded 3.14 — but the framework now builds BOTH flavors:
+`./build.sh` (regular) and `PYCR_FT=1 ./build.sh` (free-threaded,
+-Dpycr_ft). The FT build was verified end-to-end on 3.14t: import,
+classes, slices, foreign-thread bridge, GIL stays disabled. Full
+support path:
 1. Compile with `-Dpycr_ft` (Crystal flag) selecting FT layout
    constants: ob_type read at +24, PyModuleDef fields at 56/72/80/88,
    INSTANCE_DATA_OFFSET = 32 (FT PyObject size), basicsize = 40.
