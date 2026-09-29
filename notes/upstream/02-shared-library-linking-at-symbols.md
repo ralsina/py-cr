@@ -1,7 +1,6 @@
 # Upstream report 2 — ELF linkers reject Crystal's `@`-mangled symbols in shared libraries
 
-Ready to file at: https://github.com/crystal-lang/crystal/issues/new
-Labels: `kind:bug`, `topic:compiler` (codegen/link), `platform:linux`
+Filed as: https://github.com/crystal-lang/crystal/issues/17505
 
 ---
 
@@ -88,7 +87,9 @@ Any of these would remove the workaround:
 
 ---
 
-## Companion bug on the same build path (please file separately)
+## Companion bug on the same build path (filed separately)
+
+Filed as: https://github.com/crystal-lang/crystal/issues/17506
 
 `--cross-compile` combined with `--emit obj` crashes the compiler when
 the per-program cache directory is cold (it worked on warm caches,

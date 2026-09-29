@@ -1,7 +1,6 @@
 # Upstream report 1 — Crystal compiler crash
 
-Ready to file at: https://github.com/crystal-lang/crystal/issues/new
-Labels: `kind:bug`, `topic:compiler` (semantic phase)
+Filed as: https://github.com/crystal-lang/crystal/issues/17504
 
 ---
 
