@@ -7,6 +7,16 @@ Crystal code into a CPython-importable `.so`, the way
 library-agnostic: any Crystal code can be exposed, and `src/demo.cr`
 is just one example module used as the framework's test surface.
 
+## Install
+
+From the GitHub release (Linux x86_64):
+
+- CPython 3.11-3.14: `pip install <regular wheel URL from the release>`
+- Free-threaded CPython (3.13t/3.14t): `pip install <cp313t.cp314t wheel URL>`
+
+The wheels bundle their own Boehm GC; no system Crystal or libgc
+required.
+
 ## The annotation style
 
 ```crystal
